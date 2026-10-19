@@ -302,7 +302,9 @@ export const createSunMaterial = (texture) =>
         float ndv = clamp(dot(normalize(vNormal), normalize(vView)), 0.0, 1.0);
         float limb = 0.30 + 0.70 * pow(ndv, 0.5);
 
-        vec3 col = tex * limb * 1.45;
+        // HDR-запас: >1.0 нужно, чтобы фотосфера попала в UnrealBloomPass,
+        // а ACES в OutputPass всё равно аккуратно сожмёт пересвет
+        vec3 col = tex * limb * 2.1;
         // Самые горячие участки подмешиваем к тёплому белому
         float hot = smoothstep(0.55, 1.0, dot(tex, vec3(0.3333)));
         col += vec3(0.32, 0.20, 0.05) * hot;

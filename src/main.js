@@ -1,5 +1,9 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 
 import {
   PLANETS,
@@ -76,6 +80,33 @@ controls.dampingFactor = 0.05
 controls.minDistance = 5
 controls.maxDistance = 1600 // можно отлететь и рассмотреть галактику снаружи
 controls.maxPolarAngle = Math.PI / 2.05
+
+// ─── [FEATURE:POSTFX] пост-обработка: EffectComposer + UnrealBloomPass ───
+// Сцена рисуется в HDR-таргет (HalfFloat), поэтому «ярче белого» значения
+// (фотонная сфера ЧД, фотосфера Солнца) не обрезаются, а попадают в блум.
+// Порядок важен: RenderPass → UnrealBloomPass → OutputPass (тонмаппинг
+// ACES + перевод в sRGB делаются в конце, уже по готовой картинке).
+const composer = new EffectComposer(
+  renderer,
+  new THREE.WebGLRenderTarget(1, 1, {
+    type: THREE.HalfFloatType,
+    samples: 4 // MSAA: с композером canvas-сглаживание не работает
+  })
+)
+composer.setPixelRatio(renderer.getPixelRatio())
+composer.setSize(window.innerWidth, window.innerHeight)
+
+composer.addPass(new RenderPass(scene, camera))
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  GALAXY.bloom.strength,
+  GALAXY.bloom.radius,
+  GALAXY.bloom.threshold
+)
+// threshold 1.12: обычные звёзды и планеты остаются чёткими, а HDR-кольцо
+// чёрной дыры и раскалённая фотосфера Солнца получают мягкий ореол.
+if (GALAXY.bloom.enabled) composer.addPass(bloomPass)
+composer.addPass(new OutputPass())
 
 // 2. Небо: звёзды + туманность + лёгкое свечение фона
 // Всё небо лежит в одной группе, которую каждый кадр «возим» за камерой:
@@ -280,6 +311,15 @@ const SYSTEM_CAM = {
   target: new THREE.Vector3(0, -1, 0)
 }
 let camFlight = null
+// ─── [FEATURE:FOCUS] объект, к которому «прилипла» камера ───
+// Планета летит по орбите, поэтому недостаточно один раз навести target:
+// каждый кадр сдвигаем камеру и цель на её смещение.
+let camFocus = null
+let focusFollowing = false
+const focusPrev = new THREE.Vector3()
+const focusNow = new THREE.Vector3()
+const focusDelta = new THREE.Vector3()
+const flightScratch = new THREE.Vector3()
 
 const flyTo = (pos, target, duration = 1.4) => {
   camFlight = {
@@ -291,6 +331,28 @@ const flyTo = (pos, target, duration = 1.4) => {
     duration
   }
   controls.enabled = false // во время полёта управление временно отдаём анимации
+}
+
+// Подлёт к движущемуся объекту: конечная точка пересчитывается каждый кадр.
+const flyToObject = (getWorld, distance, duration = 1.05) => {
+  const startPos = camera.position.clone()
+  const startTarget = controls.target.clone()
+  const p = getWorld(new THREE.Vector3())
+  const dir = startPos.clone().sub(p)
+  if (dir.lengthSq() < 1e-6) dir.set(0.4, 0.7, 0.6)
+  dir.normalize()
+  dir.y = Math.max(dir.y, 0.32) // подходим чуть сверху — так читается объём
+  dir.normalize()
+  camFlight = {
+    dynamic: true,
+    getWorld,
+    offset: dir.multiplyScalar(distance),
+    fromPos: startPos,
+    fromTarget: startTarget,
+    t: 0,
+    duration
+  }
+  controls.enabled = false
 }
 
 // ─── [FEATURE:SYSTEMS] навигация: галактика ↔ системы ───
@@ -357,6 +419,8 @@ const attachVisitLight = (index) => {
 const enterSystem = (index) => {
   focus = { kind: 'system', index }
   following = false
+  camFocus = null
+  select(null)
   attachVisitLight(index)
   const pos = systemWorldPos(index, new THREE.Vector3())
   if (index <= 0) {
@@ -385,6 +449,8 @@ const viewGalaxy = () => {
   flyTo(center.clone().addScaledVector(n, galaxy.viewDistance), center)
   focus = { kind: 'galaxy', index: -1 }
   following = false
+  camFocus = null
+  select(null) // карточка планеты не должна висеть поверх галактики
   attachVisitLight(-1)
   // у случайной галактики радиус больше — даём камере уехать подальше
   controls.maxDistance = Math.max(1600, galaxy.viewDistance * 1.2)
@@ -395,17 +461,21 @@ const viewGalaxy = () => {
 // ─── [FEATURE:BLACKHOLE] подлететь к чёрной дыре в центре спирали ───
 // Дыра живёт в локальном (0,0,0) группы галактики, поэтому её мировая
 // позиция — это центр галактики и она не двигается вместе с рукавами.
-const viewCore = () => {
+const viewCore = (distance = 100) => {
   const center = galaxy.getCenter(new THREE.Vector3())
   const n = galaxy.getNormal(new THREE.Vector3())
-  // смотрим сверху и сбоку, чтобы аккреционный диск читался эллипсом
+  if (n.y < 0) n.negate()
+  // смотрим сверху и сбоку, чтобы аккреционный диск читался эллипсом,
+  // а полярные джеты — вертикальными лучами
   const side = new THREE.Vector3(0, 0, 1).cross(n)
   if (side.lengthSq() < 1e-6) side.set(1, 0, 0)
   side.normalize()
-  const pos = center.addScaledVector(n, 48).addScaledVector(side, 96)
-  flyTo(pos, center)
+  const dir = n.clone().multiplyScalar(0.42).addScaledVector(side, 0.91).normalize()
+  flyTo(center.clone().addScaledVector(dir, distance), center, 1.5)
   focus = { kind: 'core', index: -2 }
   following = false
+  camFocus = null
+  select(null) // если была открыта карточка планеты — закрываем
   attachVisitLight(-1)
   controls.maxDistance = Math.max(1600, galaxy.viewDistance * 1.2)
   controlsUi.setCurrent('core')
@@ -436,10 +506,19 @@ const select = (rig) => {
   tooltip.hide()
   if (!rig) {
     card.hide()
+    camFocus = null
     return
   }
   setHighlight(rig, true)
   card.show(rig)
+  // ─── [FEATURE:FOCUS] плавный подлёт и «прилипание» камеры к планете ───
+  camFocus = rig
+  const scale = rig.mesh.scale.x || 1
+  const dist = Math.max(5.5, rig.config.radius * scale * 7.5)
+  flyToObject((out) => {
+    rig.mesh.updateWorldMatrix(true, false)
+    return rig.mesh.getWorldPosition(out)
+  }, dist)
 }
 
 const controlsUi = createControls({
@@ -501,13 +580,17 @@ const pickableMeshes = () => {
   return meshes
 }
 
-const rayFromEvent = (e) => {
+// Ближайший объект под курсором: планета или горизонт чёрной дыры.
+const rayHit = (e) => {
   const rect = renderer.domElement.getBoundingClientRect()
   pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
   pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
   raycaster.setFromCamera(pointer, camera)
-  const hits = raycaster.intersectObjects(pickableMeshes(), false)
-  return hits.length ? planets.find((p) => p.mesh === hits[0].object) : null
+  const meshes = pickableMeshes()
+  const bh = galaxy.blackHole
+  if (bh && galaxy.group.visible && bh.horizon.visible) meshes.push(bh.horizon)
+  const hits = raycaster.intersectObjects(meshes, false)
+  return hits.length ? hits[0].object : null
 }
 
 // ─── [FEATURE:SYSTEMS] карта галактики ───
@@ -564,6 +647,18 @@ const systemTip = (index) => {
   }
 }
 
+// ─── [FEATURE:BLACKHOLE] подсказка на самом горизонте событий ───
+const coreTip = () => ({
+  name: 'Стрелец A*',
+  dot: '#ffb070',
+  rows: [
+    ['Класс', 'сверхмассивная ЧД'],
+    ['Горизонт', 'R = ' + (galaxy.blackHole ? galaxy.blackHole.radius : 6.5)],
+    ['Диск', 'аккреционный, доплер']
+  ],
+  getWorld: (out) => galaxy.getCenter(out)
+})
+
 renderer.domElement.addEventListener('pointerdown', (e) => {
   pointerDown = { x: e.clientX, y: e.clientY, t: performance.now() }
 })
@@ -580,7 +675,13 @@ renderer.domElement.addEventListener('pointerup', (e) => {
     hoveredSystem = -1
     return enterSystem(sysIndex)
   }
-  select(rayFromEvent(e))
+  const obj = rayHit(e)
+  if (galaxy.blackHole && galaxy.group.visible && obj === galaxy.blackHole.horizon) {
+    // ─── [FEATURE:BLACKHOLE] клик по дыре — кинематографичный подлёт ───
+    tooltip.hide()
+    return viewCore(88)
+  }
+  select(obj ? planets.find((p) => p.mesh === obj) || null : null)
 })
 
 // ─── [FEATURE:HOVER] подсказка рядом с планетой или системой ───
@@ -597,7 +698,16 @@ renderer.domElement.addEventListener('pointermove', (e) => {
   } else if (hoveredSystem !== -1) {
     hoveredSystem = -1
   }
-  const rig = rayFromEvent(e)
+  const obj = rayHit(e)
+  if (!obj) {
+    tooltip.hide()
+    return
+  }
+  if (galaxy.blackHole && galaxy.group.visible && obj === galaxy.blackHole.horizon) {
+    tooltip.show(coreTip())
+    return
+  }
+  const rig = planets.find((p) => p.mesh === obj) || null
   // у выбранной планеты уже есть карточка — подсказка не нужна
   if (!rig || rig === selected) tooltip.hide()
   else tooltip.show(rig)
@@ -673,23 +783,49 @@ function animate() {
   nebula.rotation.y += 0.0004 * delta * 60 * motionScale
 
   // ─── [FEATURE:GALAXY] галактика медленно «живёт» (вращается целиком) ───
-  galaxy.update(delta, motionScale)
+  // Камеру отдаём в update: по ней считается доплер аккреционного диска ЧД.
+  galaxy.update(delta, motionScale, camera)
 
   // ─── [FEATURE:SYSTEMS] планеты чужих систем — по тем же законам Кеплера ───
   if (systems) systems.update(orbitStep, spinStep)
 
-  // Полёт камеры (наружу к галактике / внутрь системы)
+  // Полёт камеры (наружу к галактике / внутрь системы / к объекту)
   if (camFlight) {
     camFlight.t += delta
     const k = Math.min(1, camFlight.t / camFlight.duration)
     const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2 // easeInOutQuad
-    camera.position.lerpVectors(camFlight.fromPos, camFlight.toPos, e)
-    controls.target.lerpVectors(camFlight.fromTarget, camFlight.toTarget, e)
+    if (camFlight.dynamic) {
+      // цель едет вместе с планетой — догоняем её, а не точку старта
+      camFlight.getWorld(flightScratch)
+      controls.target.lerpVectors(camFlight.fromTarget, flightScratch, e)
+      flightScratch.add(camFlight.offset)
+      camera.position.lerpVectors(camFlight.fromPos, flightScratch, e)
+    } else {
+      camera.position.lerpVectors(camFlight.fromPos, camFlight.toPos, e)
+      controls.target.lerpVectors(camFlight.fromTarget, camFlight.toTarget, e)
+    }
     camera.lookAt(controls.target)
     if (k >= 1) {
       camFlight = null
       controls.enabled = true
     }
+  }
+
+  // ─── [FEATURE:FOCUS] камера «прилипла» к выбранной планете ───
+  // OrbitControls.target уже стоит на планете; сдвигаем камеру и цель на
+  // её смещение за кадр, чтобы планета не уезжала из кадра по орбите.
+  if (camFocus && !camFlight) {
+    camFocus.mesh.updateWorldMatrix(true, false)
+    camFocus.mesh.getWorldPosition(focusNow)
+    if (focusFollowing) {
+      focusDelta.copy(focusNow).sub(focusPrev)
+      camera.position.add(focusDelta)
+      controls.target.add(focusDelta)
+    }
+    focusPrev.copy(focusNow)
+    focusFollowing = true
+  } else {
+    focusFollowing = false
   }
 
   // ─── [FEATURE:SYSTEMS] «едем» вместе с системой: галактика вращается,
@@ -734,7 +870,8 @@ function animate() {
   // Небо «возим» за камерой: скайбокс всегда вокруг нас
   skyRoot.position.copy(camera.position)
 
-  renderer.render(scene, camera)
+  // ─── [FEATURE:POSTFX] рендер через композер (RenderPass + Bloom + Output) ───
+  composer.render()
 
   // ─── [FEATURE:CARD] / [FEATURE:HOVER] 2D-слой держим привязанным к 3D ───
   card.update(camera, renderer)
@@ -747,4 +884,7 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix()
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.setSize(window.innerWidth, window.innerHeight)
+  // композер живёт своей жизнью: размер и pixelRatio надо обновлять и ему
+  composer.setPixelRatio(renderer.getPixelRatio())
+  composer.setSize(window.innerWidth, window.innerHeight)
 })

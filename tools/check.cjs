@@ -6,6 +6,8 @@
 //  2. связи import/export между модулями src/;
 //  3. существование всего API three, которое мы используем;
 //  4. существование вызываемых методов (`.метод()`) — в three или у нас.
+//  5. вендорные аддоны three (EffectComposer, UnrealBloomPass): синтаксис
+//     и разрешимость их относительных импортов.
 //
 // Пункты 3–4 появились после реального бага: в сцене использовался
 // THREE.Color().mix(), которого в three r186 НЕТ — падала вся сцена
@@ -38,7 +40,7 @@ const allFiles = rootFiles.concat(srcFiles.map((f) => 'src/' + f))
 let checked = 0
 
 // ── 1. Синтаксис ─────────────────────────────────────────────
-console.log('\n[1/4] синтаксис')
+console.log('\n[1/5] синтаксис')
 allFiles.forEach((f) => {
   try {
     execFileSync(process.execPath, ['--check', path.join(ROOT, f)], { stdio: 'pipe' })
@@ -49,7 +51,7 @@ allFiles.forEach((f) => {
 if (!failed) ok(allFiles.length + ' файлов разбираются')
 
 // ── 2. import/export между модулями ──────────────────────────
-console.log('\n[2/4] связи импортов')
+console.log('\n[2/5] связи импортов')
 let linkErrors = 0
 const exportsOf = (code) => {
   const names = new Set()
@@ -106,7 +108,7 @@ allFiles.forEach((f) => {
 if (!linkErrors) ok('все относительные импорты разрешаются')
 
 // ── 3. API three ─────────────────────────────────────────────
-console.log('\n[3/4] API three (вендорный бандл)')
+console.log('\n[3/5] API three (вендорный бандл)')
 // рендерер и прочее живут в three.module.js, ядро — в three.core.js: смотрим оба
 const bundle =
   fs.readFileSync(path.join(ROOT, 'vendor/three/three.core.js'), 'utf8') +
@@ -161,18 +163,20 @@ if (!apiErrors) ok('все THREE.* из src/ есть в бандле (' + expor
 // Тот самый случай с Color.mix(): класс есть, а метода нет — сцена падает
 // целиком. Смотрим все `.имя(` в src/ и требуем, чтобы имя было либо
 // методом бандла, либо нашим/браузерным (белый список ниже).
-console.log('\n[4/4] методы объектов (вызовы .имя())')
+console.log('\n[4/5] методы объектов (вызовы .имя())')
 const known = new Set([
   // наши собственные объекты-фабрики (card.js, ui.js, tooltip.js, main.js)
   'show', 'hide', 'update', 'setSpeed', 'setPaused', 'setGalaxyInfo', 'setSystemInfo',
   'setSystemList', 'setCurrent', 'setPlanetChecked', 'setParamValues', 'dispose',
   'setOrbitsVisible', 'getWorld', 'current', 'getNormal', 'getCenter',
+  // EffectComposer (addon, не three.core) — цепочка проходов
+  'addPass', 'setPixelRatio', 'getPixelRatio',
   // WebGLRenderer / OrbitControls (в бандле объявлены как `this.render = …`)
   'render', 'setPixelRatio', 'setSize', 'getPixelRatio', 'getSize', 'update',
   'getDistance', 'getAzimuthalAngle', 'getPolarAngle', 'setTarget', 'saveState', 'reset',
   // canvas 2D и DOM
   'getContext', 'fillRect', 'createImageData', 'putImageData', 'createRadialGradient',
-  'addColorStop', 'beginPath', 'save', 'restore', 'closest', 'getBoundingClientRect',
+  'createLinearGradient', 'addColorStop', 'beginPath', 'save', 'restore', 'closest', 'getBoundingClientRect',
   'addEventListener', 'removeEventListener', 'appendChild', 'createElement',
   'querySelector', 'querySelectorAll', 'preventDefault', 'stopPropagation',
   'requestAnimationFrame', 'classList', 'contains',
@@ -203,6 +207,48 @@ srcFiles.forEach((f) => {
   }
 })
 if (!methodErrors) ok('все вызовы .метод() известны (' + known.size + ' своих/браузерных в белом списке)')
+
+// ── 5. вендорные аддоны three ────────────────────────────────
+// Пост-обработка живёт в examples/jsm и подключена через importmap.
+// Проверяем, что файлы на месте, разбираются и их импорты разрешаются
+// (иначе на GitHub Pages всё упадёт на 404 без единой ошибки в src/).
+console.log('\n[5/5] вендорные аддоны')
+const addonDirs = [
+  'vendor/three/addons/postprocessing',
+  'vendor/three/addons/shaders',
+  'vendor/three/addons/controls'
+]
+const addonFiles = []
+addonDirs.forEach((dir) => {
+  const abs = path.join(ROOT, dir)
+  if (!fs.existsSync(abs)) return
+  fs.readdirSync(abs)
+    .filter((f) => f.endsWith('.js'))
+    .sort()
+    .forEach((f) => addonFiles.push(dir + '/' + f))
+})
+
+let addonErrors = 0
+addonFiles.forEach((f) => {
+  try {
+    execFileSync(process.execPath, ['--check', path.join(ROOT, f)], { stdio: 'pipe' })
+  } catch (e) {
+    addonErrors++
+    fail(f + ': синтаксис')
+  }
+  const code = read(f)
+  const re = /from\s+['"](\.[^'"]+)['"]/g
+  let m
+  while ((m = re.exec(code))) {
+    const target = path.normalize(path.join(path.dirname(f), m[1]))
+    if (!fs.existsSync(path.join(ROOT, target))) {
+      addonErrors++
+      fail(f + ': нет модуля ' + target)
+    }
+  }
+})
+if (!addonErrors)
+  ok(addonFiles.length + ' аддонов three: синтаксис и импорты в порядке')
 
 // ── Итог ─────────────────────────────────────────────────────
 console.log('')

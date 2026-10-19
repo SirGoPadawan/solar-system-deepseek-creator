@@ -11,19 +11,23 @@ import { starTexture, glowTexture } from './textures.js'
 // Из чего состоит:
 //   1. **Сфера Шварцшильда** — чёрный шар, который перекрывает свет ядра
 //      и звёзд за собой. Именно силуэт делает дыру дырой.
-//   2. **Фотонное кольцо** — тонкое яркое кольцо по краю силуэта
-//      (спрайт, всегда смотрит в камеру; depthTest выключен, чтобы
-//      кромка шара его не срезала).
-//   3. **Аккреционный диск** — плоское кольцо с радиальным градиентом
-//      «раскалённый внутренний край → оранжевый → красный → прозрачный».
-//      UV у RingGeometry — плоская проекция, поэтому градиент ложится
-//      ровными концентрическими полосами.
-//   4. **Два слоя частиц** с разной скоростью вращения (дифференциальное
-//      вращение, как у настоящего диска): внутренний слой крутится
-//      примерно в 2 раза быстрее внешнего.
+//   2. **Фотонная сфера** — тонкое раскалённое кольцо по краю силуэта
+//      (спрайт, всегда смотрит в камеру) + широкий неоновый ореол.
+//   3. **Аккреционный диск** — ОДНА система частиц (THREE.Points) вместо
+//      плоского меша. Частицы живут по кеплеровскому закону (ω ∝ r^-1.5),
+//      поэтому диск «сдвигается» спиралью, а турбулентность (сумма
+//      синусов со случайными фазами) заставляет вещество струиться.
+//   4. **[FEATURE:DOPPLER] релятивистский доплер** — сторона диска,
+//      которая летит на камеру, разгоняется в белый и вспыхивает,
+//      уходящая — гаснет в глубокий оранжево-красный. Считается каждый
+//      кадр по направлению на камеру (v · n) в локальных координатах.
+//   5. **[FEATURE:JETS] полярные джеты** — два аддитивных конуса
+//      голубой плазмы вдоль оси Y (нормаль диска), с мерцанием.
 //
-// Всё это — 5 draw call'ов и ни одного шейдера: дёшево и предсказуемо.
+// Всё — несколько draw call'ов, без единого кастомного шейдера.
 // ─────────────────────────────────────────────────────────────
+
+const TWO_PI = Math.PI * 2
 
 // Круглая маска без мипмапов (иначе точка в 2–3 px усредняется
 // в серый квадрат — та же история, что у звёзд галактики).
@@ -47,95 +51,237 @@ const makeTexture = (stops, size = 256) => {
   return tex
 }
 
-// Аккреционный диск: внутренний край раскалён добела, дальше оранжевый,
-// красный и полностью прозрачный. `innerRatio` = diskInner / diskOuter,
-// потому что RingGeometry кладёт UV в диапазон [innerRatio, 1] от центра.
-const makeDiskTexture = (innerRatio) => {
-  const start = Math.min(0.92, Math.max(0.02, innerRatio))
-  const at = (t) => start + (1 - start) * t
-  return makeTexture([
-    [0, 'rgba(0,0,0,0)'],
-    [at(0.0), 'rgba(255,252,240,0.95)'], // раскалённая кромка
-    [at(0.09), 'rgba(255,222,160,0.9)'],
-    [at(0.26), 'rgba(255,150,60,0.72)'],
-    [at(0.5), 'rgba(220,70,26,0.4)'],
-    [at(0.74), 'rgba(150,24,12,0.16)'],
-    [at(0.93), 'rgba(80,6,4,0.04)'],
-    [1, 'rgba(0,0,0,0)']
-  ])
-}
-
-// Фотонное кольцо: узкая яркая полоса на 0.68 радиуса спрайта.
+// ─── [FEATURE:PHOTON] фотонная сфера: тонкое белое кольцо ───
+// Полоса на 0.675 радиуса спрайта: при scale = radius * 2.9 это ровно
+// радиус горизонта, то есть кольцо лежит на кромке силуэта.
 const makePhotonRingTexture = () =>
   makeTexture([
     [0, 'rgba(0,0,0,0)'],
-    [0.54, 'rgba(255,190,120,0)'],
-    [0.61, 'rgba(255,236,200,0.5)'],
-    [0.675, 'rgba(255,255,255,0.95)'], // само кольцо
-    [0.73, 'rgba(255,176,96,0.42)'],
-    [0.84, 'rgba(255,96,42,0.12)'],
+    [0.5, 'rgba(120,190,255,0)'],
+    [0.58, 'rgba(190,230,255,0.18)'],
+    [0.645, 'rgba(240,250,255,0.72)'],
+    [0.675, 'rgba(255,255,255,1)'], // само кольцо
+    [0.703, 'rgba(255,246,230,0.6)'],
+    [0.745, 'rgba(255,196,130,0.12)'],
+    [0.83, 'rgba(0,0,0,0)'],
     [1, 'rgba(0,0,0,0)']
   ])
 
-// Слой частиц диска: плоское кольцо с толщиной и случайными цветами.
-const makeRingParticles = ({
-  count,
-  rMin,
-  rMax,
-  height,
-  size,
-  opacity,
-  spin,
-  colorIn,
-  colorOut
-}) => {
+// Широкий неоновый ореол вокруг кольца — «свет, застрявший на орбите».
+const makePhotonHaloTexture = () =>
+  makeTexture([
+    [0, 'rgba(0,0,0,0)'],
+    [0.4, 'rgba(90,150,255,0)'],
+    [0.5, 'rgba(130,190,255,0.10)'],
+    [0.59, 'rgba(170,220,255,0.26)'],
+    [0.655, 'rgba(215,242,255,0.4)'],
+    [0.715, 'rgba(150,205,255,0.2)'],
+    [0.81, 'rgba(90,140,255,0.06)'],
+    [1, 'rgba(0,0,0,0)']
+  ])
+
+// ─── [FEATURE:JETS] градиент вдоль конуса: плазма ярче у основания ───
+// brightAtTop: true — основание у верхнего края канвы (нижний джет).
+// CanvasTexture по умолчанию flipY, поэтому v=0 — низ канвы.
+const makeJetTexture = (brightAtTop) => {
+  if (typeof document === 'undefined') return null
+  const W = 8
+  const H = 256
+  const canvas = document.createElement('canvas')
+  canvas.width = W
+  canvas.height = H
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  const g = ctx.createLinearGradient(0, 0, 0, H)
+  const stops = [
+    [0.0, 'rgba(225,242,255,0.95)'], // у основания
+    [0.09, 'rgba(180,220,255,0.55)'],
+    [0.32, 'rgba(135,185,255,0.24)'],
+    [0.64, 'rgba(105,150,255,0.09)'],
+    [1.0, 'rgba(85,115,255,0)']
+  ]
+  stops
+    .map(([at, color]) => [brightAtTop ? at : 1 - at, color])
+    .sort((a, b) => a[0] - b[0])
+    .forEach(([at, color]) => g.addColorStop(at, color))
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, W, H)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.generateMipmaps = false
+  tex.minFilter = THREE.LinearFilter
+  tex.magFilter = THREE.LinearFilter
+  return tex
+}
+
+// ─────────────────────────────────────────────────────────────
+// ─── [FEATURE:DOPPLER] аккреционный диск: одна система частиц ───
+//
+// Каждая частица помнит радиус, угол, угловую скорость, высоту и фазу.
+// Раз в кадр мы считаем:
+//   a  = a0 + ω·t                      — кеплеровское вращение
+//   r  = r0 + турбулентность(a, t)     — радиальные завихрения
+//   y  = y0 + турбулентность(a, t)     — вертикальное «кипение»
+//   dop = (v · dir) / |v|             — доплер по направлению на камеру
+// Приближается → к белому и ярче, уходит → к тёмно-красному и тусклее.
+// ─────────────────────────────────────────────────────────────
+const createDisk = ({ count, rMin, rMax, radius, spin, dopplerBoost }) => {
   const positions = new Float32Array(count * 3)
   const colors = new Float32Array(count * 3)
-  const a = new THREE.Color(colorIn)
-  const b = new THREE.Color(colorOut)
+  const baseColors = new Float32Array(count * 3)
+
+  const rad = new Float32Array(count)
+  const ang = new Float32Array(count)
+  const omega = new Float32Array(count)
+  const yBase = new Float32Array(count)
+  const yAmp = new Float32Array(count)
+  const phase = new Float32Array(count)
+
+  const cHot = new THREE.Color(0xfff8ec)
+  const cWarm = new THREE.Color(0xffb257)
+  const cCool = new THREE.Color(0x8e1406)
   const c = new THREE.Color()
 
+  const span = rMax - rMin
   for (let i = 0; i < count; i++) {
     const i3 = i * 3
-    // больше частиц у внутреннего края (там диск ярче и плотнее)
-    const r = rMin + Math.pow(Math.random(), 1.6) * (rMax - rMin)
-    const angle = Math.random() * Math.PI * 2
-    positions[i3] = Math.cos(angle) * r
-    positions[i3 + 1] = (Math.random() - 0.5) * height * (0.4 + (r / rMax) * 0.6)
-    positions[i3 + 2] = Math.sin(angle) * r
+    // плотнее у внутреннего края — там диск ярче и быстрее
+    const k = Math.pow(Math.random(), 1.35)
+    const r = rMin + k * span
+    rad[i] = r
+    ang[i] = Math.random() * TWO_PI
+    // ω ∝ r^-1.5: внутренние частицы нарезают обороты в разы быстрее
+    omega[i] = spin * Math.pow(rMin / r, 1.5) * 3.2
+    yAmp[i] = radius * (0.022 + 0.085 * k)
+    yBase[i] = (Math.random() - 0.5) * radius * (0.05 + 0.14 * k)
+    phase[i] = Math.random() * TWO_PI
 
-    // у внутреннего края — бело-жёлтый, у внешнего — красный
-    c.copy(a).lerp(b, Math.max(0, Math.min(1, (r - rMin) / (rMax - rMin))))
-    const boost = 0.7 + Math.random() * 0.6
-    colors[i3] = c.r * boost
-    colors[i3 + 1] = c.g * boost
-    colors[i3 + 2] = c.b * boost
+    // бело-жёлтый центр → оранжевый → тёмно-красный внешний край
+    const m = Math.min(1, k * 1.12)
+    if (m < 0.45) c.copy(cHot).lerp(cWarm, m / 0.45)
+    else c.copy(cWarm).lerp(cCool, (m - 0.45) / 0.55)
+    const bright = 1.12 - 0.42 * k
+    baseColors[i3] = c.r * bright
+    baseColors[i3 + 1] = c.g * bright
+    baseColors[i3 + 2] = c.b * bright
+
+    const x = Math.cos(ang[i]) * r
+    const z = Math.sin(ang[i]) * r
+    positions[i3] = x
+    positions[i3 + 1] = yBase[i]
+    positions[i3 + 2] = z
+    colors[i3] = baseColors[i3]
+    colors[i3 + 1] = baseColors[i3 + 1]
+    colors[i3 + 2] = baseColors[i3 + 2]
   }
 
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
 
-  const points = new THREE.Points(
-    geometry,
-    new THREE.PointsMaterial({
-      color: 0xffffff,
-      map: starTexture,
-      vertexColors: true,
-      size,
-      transparent: true,
-      opacity,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      alphaTest: 0.01,
-      sizeAttenuation: false,
-      fog: false,
-      toneMapped: false
-    })
-  )
+  const material = new THREE.PointsMaterial({
+    color: 0xffffff,
+    map: starTexture,
+    vertexColors: true,
+    size: 2.2,
+    transparent: true,
+    opacity: 0.95,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    alphaTest: 0.01,
+    sizeAttenuation: false,
+    fog: false,
+    toneMapped: false
+  })
+
+  const points = new THREE.Points(geometry, material)
   points.frustumCulled = false
-  points.userData.spin = spin
-  return points
+  points.renderOrder = 0.25
+
+  const posAttr = geometry.attributes.position
+  const colAttr = geometry.attributes.color
+  const camLocal = new THREE.Vector3()
+  let t = 0
+
+  // view = { camera, center, invRotation } — нужен только для доплера
+  // (в офлайн-тестах камеры нет, тогда цвета остаются базовыми).
+  const update = (dt, view) => {
+    t += dt
+    let hasView = false
+    if (view && view.camera && view.invRotation) {
+      camLocal
+        .copy(view.camera.position)
+        .sub(view.center)
+        .applyQuaternion(view.invRotation)
+      hasView = true
+    }
+
+    for (let i = 0; i < count; i++) {
+      const i3 = i * 3
+      const r0 = rad[i]
+      const a = ang[i] + omega[i] * t
+      // случайные завихрения: два синуса с личными фазами дают
+      // непериодичную «турбулентность» без шума Перлина
+      const swirl = Math.sin(a * 2.3 + phase[i] + t * 0.9)
+      const rr = r0 + swirl * 0.5 + Math.sin(r0 * 0.7 - t * 1.6 + phase[i]) * 0.22
+      const x = Math.cos(a) * rr
+      const z = Math.sin(a) * rr
+      const y = yBase[i] + Math.sin(a * 3.1 + phase[i] * 1.7 + t * 1.3) * yAmp[i]
+
+      positions[i3] = x
+      positions[i3 + 1] = y
+      positions[i3 + 2] = z
+
+      const br = baseColors[i3]
+      const bg = baseColors[i3 + 1]
+      const bb = baseColors[i3 + 2]
+
+      if (!hasView) {
+        colors[i3] = br
+        colors[i3 + 1] = bg
+        colors[i3 + 2] = bb
+        continue
+      }
+
+      // Скорость частицы: p = (r·cos a, y, r·sin a), a = … + ω·t
+      //   dp/dt = (−ω·r·sin a, 0, ω·r·cos a) = (−ω·z, 0, ω·x)
+      // (знак важен: с обратным знаком доплер перепутал бы стороны)
+      const vx = -omega[i] * z
+      const vz = omega[i] * x
+      let dx = camLocal.x - x
+      let dy = camLocal.y - y
+      let dz = camLocal.z - z
+      const dl = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1
+      dx /= dl
+      dy /= dl
+      dz /= dl
+      const vl = Math.abs(omega[i]) * Math.sqrt(x * x + z * z) || 1
+      const dop = (vx * dx + vz * dz) / vl // −1 уходит … +1 летит на камеру
+
+      let gain
+      let mix
+      if (dop >= 0) {
+        // приближается: белее + релятивистский буст яркости
+        mix = Math.min(1, dop * 1.05)
+        gain = 1 + dopplerBoost * mix
+        colors[i3] = (br + (1.0 - br) * mix) * gain
+        colors[i3 + 1] = (bg + (0.98 - bg) * mix) * gain
+        colors[i3 + 2] = (bb + (0.95 - bb) * mix) * gain
+      } else {
+        // уходит: тусклее и в глубокий оранжево-красный
+        mix = Math.min(1, -dop * 0.95)
+        gain = 1 - 0.78 * mix
+        colors[i3] = (br + (0.42 - br) * mix) * gain
+        colors[i3 + 1] = (bg + (0.045 - bg) * mix) * gain
+        colors[i3 + 2] = (bb + (0.012 - bb) * mix) * gain
+      }
+    }
+
+    posAttr.needsUpdate = true
+    colAttr.needsUpdate = true
+  }
+
+  return { points, update, count }
 }
 
 export const createBlackHole = (options = {}) => {
@@ -144,9 +290,14 @@ export const createBlackHole = (options = {}) => {
     diskInner = 8.5,
     diskOuter = 34,
     diskSpin = 0.55,
-    particles = 2600,
+    particles = 6000,
+    dopplerBoost = 2.4,
     photonScale = 2.9,
-    glowScale = 5.2
+    photonGlowScale = 3.35,
+    glowScale = 5.2,
+    jetLength = 120,
+    jetRadius = 7,
+    jetBaseRadius = 1.6
   } = options
 
   const root = new THREE.Group()
@@ -187,100 +338,156 @@ export const createBlackHole = (options = {}) => {
   glow.renderOrder = -0.45
   root.add(glow)
 
-  // ── 3. Фотонное кольцо по краю силуэта ──
+  // ── 3. [FEATURE:PHOTON] фотонная сфера ──
+  // Тонкое «неоновое» кольцо, светящееся заметно выше 1.0 (HDR), чтобы
+  // UnrealBloomPass поймал именно его, а не весь диск.
   const photonTex = makePhotonRingTexture()
-  const photon = new THREE.Sprite(
-    new THREE.SpriteMaterial({
-      map: photonTex,
-      color: 0xffc48a,
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      depthTest: false, // кромка сферы не должна срезать кольцо
-      opacity: 0.9,
-      fog: false,
-      toneMapped: false
-    })
-  )
-  photon.scale.setScalar(radius * photonScale)
-  photon.renderOrder = 0.2
-  root.add(photon)
-
-  // ── 4. Аккреционный диск (плоское кольцо с размытым градиентом) ──
-  const diskTex = makeDiskTexture(diskInner / diskOuter)
-  const diskMaterial = new THREE.MeshBasicMaterial({
-    map: diskTex,
+  const photonMaterial = new THREE.SpriteMaterial({
+    map: photonTex,
     color: 0xffffff,
     transparent: true,
-    opacity: 0.9,
     blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
     depthWrite: false,
+    depthTest: false, // кромка сферы не должна срезать кольцо
+    opacity: 0.95,
     fog: false,
     toneMapped: false
   })
-  const disk = new THREE.Mesh(
-    new THREE.RingGeometry(diskInner, diskOuter, 128, 1),
-    diskMaterial
-  )
-  disk.rotation.x = -Math.PI / 2 // из XY в плоскость диска галактики (XZ)
-  disk.renderOrder = 0.15
-  root.add(disk)
+  photonMaterial.color.setScalar(2.6) // HDR: порог блума выше 1
+  const photon = new THREE.Sprite(photonMaterial)
+  photon.scale.setScalar(radius * photonScale)
+  photon.renderOrder = 0.21
+  root.add(photon)
 
-  // ── 5. Быстро вращающиеся частицы: два слоя ──
-  const inner = makeRingParticles({
-    count: Math.round(particles * 0.46),
+  const photonHaloTex = makePhotonHaloTexture()
+  const photonHaloMaterial = new THREE.SpriteMaterial({
+    map: photonHaloTex,
+    color: 0x9fd4ff,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    opacity: 0.55,
+    fog: false,
+    toneMapped: false
+  })
+  photonHaloMaterial.color.setScalar(1.5)
+  const photonGlow = new THREE.Sprite(photonHaloMaterial)
+  photonGlow.scale.setScalar(radius * photonGlowScale)
+  photonGlow.renderOrder = 0.2
+  root.add(photonGlow)
+
+  // ── 4. [FEATURE:DOPPLER] аккреционный диск из частиц ──
+  const disk = createDisk({
+    count: particles,
     rMin: diskInner,
-    rMax: diskInner + (diskOuter - diskInner) * 0.38,
-    height: radius * 0.16,
-    size: 2.4,
-    opacity: 0.9,
-    spin: diskSpin * 3,
-    colorIn: 0xfff4dc,
-    colorOut: 0xff9a3c
-  })
-  const outer = makeRingParticles({
-    count: Math.round(particles * 0.54),
-    rMin: diskInner + (diskOuter - diskInner) * 0.3,
     rMax: diskOuter,
-    height: radius * 0.26,
-    size: 1.9,
-    opacity: 0.72,
-    spin: diskSpin * 1.35,
-    colorIn: 0xffb066,
-    colorOut: 0xc22c12
+    radius,
+    spin: diskSpin,
+    dopplerBoost
   })
-  inner.renderOrder = 0.25
-  outer.renderOrder = 0.24
-  root.add(inner, outer)
+  root.add(disk.points)
 
+  // ── 5. [FEATURE:JETS] полярные джеты вдоль оси Y ──
+  // Цилиндр: uv.y = 0 внизу, 1 вверху. У верхнего джета основание внизу,
+  // у нижнего — вверху, поэтому градиенты зеркальные.
+  const jetTexUpper = makeJetTexture(false)
+  const jetTexLower = makeJetTexture(true)
+  const jetMaterialTop = new THREE.MeshBasicMaterial({
+    map: jetTexUpper,
+    color: 0xbcdcff,
+    transparent: true,
+    opacity: 0.34,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    fog: false,
+    toneMapped: false
+  })
+  const jetMaterialBottom = new THREE.MeshBasicMaterial({
+    map: jetTexLower,
+    color: 0xbcdcff,
+    transparent: true,
+    opacity: 0.34,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    fog: false,
+    toneMapped: false
+  })
+  // узкое основание у горизонта, широкий «раструб» наружу
+  const jetTop = new THREE.Mesh(
+    new THREE.CylinderGeometry(jetRadius, jetBaseRadius, jetLength, 28, 1, true),
+    jetMaterialTop
+  )
+  jetTop.position.y = jetLength / 2
+  jetTop.renderOrder = -0.44
+
+  const jetBottom = new THREE.Mesh(
+    new THREE.CylinderGeometry(jetBaseRadius, jetRadius, jetLength, 28, 1, true),
+    jetMaterialBottom
+  )
+  jetBottom.position.y = -jetLength / 2
+  jetBottom.renderOrder = -0.44
+
+  root.add(jetTop, jetBottom)
+
+  // ── анимация ──
   let t = 0
-  const update = (delta, motionScale = 1) => {
+  const view = { camera: null, center: null, invRotation: null }
+
+  const update = (delta, motionScale = 1, cameraView = null) => {
     const k = delta * Math.max(0, motionScale)
     t += k
-    inner.rotation.y += inner.userData.spin * k
-    outer.rotation.y += outer.userData.spin * k
-    // лёгкое «дыхание» диска — как будто вещество падает неравномерно
-    diskMaterial.opacity = 0.84 + Math.sin(t * 2.7) * 0.07
-    horizon.scale.setScalar(1 + Math.sin(t * 1.9) * 0.012)
+
+    if (cameraView && cameraView.camera) {
+      view.camera = cameraView.camera
+      view.center = cameraView.center
+      view.invRotation = cameraView.invRotation
+    }
+
+    disk.update(k, view.camera ? view : null)
+
+    // «дыхание» горизонта + мерцание джетов
+    horizon.scale.setScalar(1 + Math.sin(t * 1.9) * 0.008)
+    const pulse = 0.5 + 0.5 * Math.sin(t * 3.1)
+    photon.material.opacity = 0.86 + 0.14 * pulse
+    photonGlow.material.opacity = 0.42 + 0.18 * pulse
+    jetMaterialTop.opacity = 0.3 + 0.05 * Math.sin(t * 4.3)
+    jetMaterialBottom.opacity = 0.3 + 0.05 * Math.sin(t * 4.3 + 1.7)
+    glowMaterial.opacity = 0.32 + 0.04 * Math.sin(t * 2.7)
   }
 
   const dispose = () => {
     horizon.geometry.dispose()
     horizon.material.dispose()
-    disk.geometry.dispose()
-    disk.material.dispose()
-    inner.geometry.dispose()
-    inner.material.dispose()
-    outer.geometry.dispose()
-    outer.material.dispose()
+    disk.points.geometry.dispose()
+    disk.points.material.dispose()
     glowMaterial.dispose()
-    photon.material.dispose()
-    if (diskTex) diskTex.dispose()
+    photonMaterial.dispose()
+    photonHaloMaterial.dispose()
+    jetTop.geometry.dispose()
+    jetBottom.geometry.dispose()
+    jetMaterialTop.dispose()
+    jetMaterialBottom.dispose()
     if (photonTex) photonTex.dispose()
+    if (photonHaloTex) photonHaloTex.dispose()
+    if (jetTexUpper) jetTexUpper.dispose()
+    if (jetTexLower) jetTexLower.dispose()
     // starTexture / glowTexture — общие, их не трогаем
     if (root.parent) root.parent.remove(root)
   }
 
-  return { root, horizon, disk, photon, particles: [inner, outer], radius, update, dispose }
+  return {
+    root,
+    horizon,
+    glow,
+    photon,
+    photonGlow,
+    disk: disk.points,
+    particleCount: disk.count,
+    jets: [jetTop, jetBottom],
+    radius,
+    update,
+    dispose
+  }
 }

@@ -130,6 +130,16 @@ class Color {
     this.b += (c.b - this.b) * a
     return this
   }
+  setScalar(s) {
+    this.r = this.g = this.b = s
+    return this
+  }
+  multiplyScalar(s) {
+    this.r *= s
+    this.g *= s
+    this.b *= s
+    return this
+  }
 }
 
 class Obj3D {
@@ -180,6 +190,8 @@ class BufferGeometry {
 class Material {
   constructor(opts = {}) {
     Object.assign(this, opts)
+    // в three material.color — это Color, а не число
+    if (typeof this.color === 'number') this.color = new Color(this.color)
     this.disposed = false
   }
   dispose() {
@@ -205,6 +217,12 @@ class RingGeometry extends SphereGeometry {
     super(outer)
     this.innerRadius = inner
     this.outerRadius = outer
+  }
+}
+class CylinderGeometry extends BufferGeometry {
+  constructor(radiusTop = 1, radiusBottom = 1, height = 1) {
+    super()
+    this.parameters = { radiusTop, radiusBottom, height }
   }
 }
 class Sprite extends Obj3D {
@@ -238,6 +256,7 @@ const THREE = {
   Group: Obj3D,
   SphereGeometry,
   RingGeometry,
+  CylinderGeometry,
   CanvasTexture,
   AdditiveBlending: 2,
   NormalBlending: 1,
@@ -365,18 +384,38 @@ else {
     bad('радиус горизонта не совпадает с конфигом')
   else ok('сфера Шварцшильда: R = ' + horizonR)
 
-  const parts = bh.particles.reduce((s, p) => s + p.geometry.attributes.position.array.length / 3, 0)
+  const parts = bh.particleCount
   if (parts !== GALAXY.blackHole.particles)
     bad('частиц диска ' + parts + ' вместо ' + GALAXY.blackHole.particles)
   else ok('частиц аккреционного диска: ' + parts)
 
-  // диск должен реально вращаться (и быстрее галактики)
-  const a0 = bh.particles[0].rotation.y
+  // диск — одна система Points, а не плоский меш + два слоя
+  if (!bh.disk || !bh.disk.geometry.attributes.position)
+    bad('диск не собран как THREE.Points')
+  else if (bh.particles) bad('остался старый API bh.particles')
+  else ok('аккреционный диск — одна система частиц (Points)')
+
+  // частицы должны реально двигаться (турбулентность + вращение)
+  const pos = bh.disk.geometry.attributes.position.array
+  const px0 = pos[0]
+  const pz0 = pos[2]
   bh.update(1, 1)
-  const spin = Math.abs(bh.particles[0].rotation.y - a0)
-  if (spin < 0.1) bad('частицы диска не вращаются')
-  else if (spin <= GALAXY.rotationSpeed) bad('диск вращается не быстрее галактики')
-  else ok('диск вращается быстро: ' + spin.toFixed(2) + ' рад/с')
+  if (Math.abs(pos[0] - px0) < 1e-5 && Math.abs(pos[2] - pz0) < 1e-5)
+    bad('частицы диска не двигаются')
+  else ok('частицы диска струятся (позиции меняются)')
+
+  // [FEATURE:JETS] два джета вдоль ±Y
+  const jets = bh.jets || []
+  const L = GALAXY.blackHole.jetLength
+  if (jets.length !== 2) bad('джетов ' + jets.length + ' вместо 2')
+  else if (Math.abs(jets[0].position.y - L / 2) > 1e-6 || Math.abs(jets[1].position.y + L / 2) > 1e-6)
+    bad('джеты стоят несимметрично относительно горизонта')
+  else ok('полярные джеты: ±' + L / 2 + ' по Y')
+
+  // фотонная сфера должна быть HDR (> 1), иначе блум её не поймает
+  if (!bh.photon || !bh.photon.material || bh.photon.material.color.r <= 1)
+    bad('фотонное кольцо не в HDR (блум не увидит)')
+  else ok('фотонная сфера в HDR: ' + bh.photon.material.color.r.toFixed(2))
 }
 
 // вращение

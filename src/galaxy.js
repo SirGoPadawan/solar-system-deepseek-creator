@@ -525,9 +525,24 @@ export const createGalaxy = (options = GALAXY) => {
   }
 
   // Медленное вращение диска (вместе со звёздами, пылью и системами-детьми)
-  const update = (delta, motionScale = 1) => {
+  // [FEATURE:DOPPLER] камере нужен диск ЧД: доплер считается по направлению
+  // на неё, поэтому переводим позицию камеры в локальные координаты группы.
+  let invRotation = null
+  const update = (delta, motionScale = 1, camera = null) => {
     points.rotation.y += rotationSpeed * delta * motionScale
-    if (blackHole) blackHole.update(delta, motionScale)
+    if (!blackHole) return
+    if (camera) {
+      if (!invRotation) {
+        invRotation = new THREE.Quaternion().setFromEuler(group.rotation).invert()
+      }
+      blackHole.update(delta, motionScale, {
+        camera,
+        center: group.position,
+        invRotation
+      })
+    } else {
+      blackHole.update(delta, motionScale)
+    }
   }
 
   // Нормаль диска — нужна, чтобы поставить камеру «в плане» (см. main.js)
