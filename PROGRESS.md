@@ -12,12 +12,14 @@
 
 ## Файлы проекта
 
-- `index.html` — точка входа, importmap указывает на локальный `node_modules`.
+- `index.html` — точка входа, importmap указывает на **`vendor/three/`** (не на `node_modules`).
 - `index.js` — вся сцена. **Основной файл, который мы дорабатываем.**
 - `server.js` — статический сервер без зависимостей (для `npm start`), ESM.
-- `README.md` — инструкция по запуску/настройке + упоминание модели.
+- `vendor/three/` — закоммиченный three.js (`three.module.js`, `three.core.js`) + `addons/controls/OrbitControls.js`.
+- `.nojekyll` — пустой файл, отключает Jekyll на GitHub Pages.
+- `README.md` — инструкция по запуску/деплою + упоминание модели.
 - `index.js.bak` — резервная копия исходной версии (до всех правок).
-- `node_modules/` — зависимости (three и др.).
+- `node_modules/` — локальные зависимости (в `.gitignore`, для разработки).
 - `PROGRESS.md` — этот файл.
 - `solar.jpg`, `2.png` — референсы внешнего вида.
 
@@ -132,6 +134,60 @@ npm start
   настройки и раздел «Сделано с помощью» с моделью.
 - **Модель:** `DeepSeek V4.1 Flash Free` (провайдер `opencode`, id `deepseek-v4.1-flash-free`).
 - Проверено: `npm start` → `index.html`/`index.js`/`three.module.js` отдаются HTTP 200.
+
+### Этап 9. GitHub Pages (node_modules в .gitignore)
+Проблема: importmap ссылался на `./node_modules/...`, а `node_modules` не коммитится →
+на GitHub Pages three.js не нашёлся бы и сцена не запустилась.
+
+- three.js **закоммичен в `vendor/three/`** (файлы `three.module.js`, `three.core.js`,
+  `addons/controls/OrbitControls.js`). `three.module.js` сам импортит `./three.core.js` —
+  поэтому оба файла нужны.
+- `index.html`: importmap переведён на `./vendor/three/...` (от `node_modules` страница больше не зависит).
+- `index.js`: восстановлены нормальные импорты (`from 'three'`, `from 'three/addons/...'`) —
+  до этого там был сломанный вариант `from 'https://unpkg.com'`.
+- Добавлен `.nojekyll` (Jekyll на Pages не должен трогать файлы).
+- `package.json`: убрана дублирующаяся пустая `description`, добавлен `homepage`.
+- README: раздел «Публикация на GitHub Pages» (+ вариант через CDN).
+- **Альтернатива:** можно не хранить `vendor/`, а указать в importmap CDN
+  (`https://unpkg.com/three@0.186.1/build/three.module.js`) — тогда интернет обязателен.
+
+### Этап 10. Спутники, аппараты, пояса и «покрашевее»
+- **Новые планеты**: Уран и Нептун (шейдеры `uranusShader`/`neptuneShader`,
+  палитры `URANUS_BANDS`/`NEPTUNE_BANDS`).
+- **Естественные спутники** `[FEATURE:MOONS]`: Земля — Луна; Марс — Фобос/Деймос;
+  Юпитер — Ио/Европа/Ганимед/Каллисто; Сатурн — Энцелад/Рея/Титан; Уран — Титания/Оберон;
+  Нептун — Тритон. Кружатся вокруг своей планеты, у каждого светящееся кольцо орбиты.
+- **Искусственные аппараты** `[FEATURE:SATELLITES]`: МКС и Hubble (Земля), Mars Orbiter,
+  Juno, Cassini, Voyager 2, Akatsuki. Модель: корпус + 2 солнечные панели + антенна + маяк;
+  маяк мигает (анимируется прозрачность в игровом цикле).
+- **Пояса малых тел** `[FEATURE:BELTS]`: пояс астероидов (700 тел, 16–18.6) и пояс Койпера
+  (500 тел, 37–45) через `InstancedMesh`; у каждого тела свои радиус/скорость/наклон.
+- **Кольца Сатурна** `[FEATURE:RINGS]`: 4 полосы со щелями вместо одной плоской заготовки.
+- **Атмосферы** `[FEATURE:ATMOSPHERE]`: fresnel-оболочка (свой шейдер) у Земли, Венеры,
+  Марса и газовых гигантов.
+- **Наклоны осей**: `axialTilt` у планет (Уран почти «лежит на боку» — 1.71 рад).
+- **Перестройка иерархии**: у планеты теперь `holder` (точка планеты) + `tiltGroup` (наклон оси);
+  спутники и аппараты крепятся к `holder`, поэтому не наследуют наклон/вращение оси.
+- Камера отодвинута (`(0, 18, 42)`, `maxDistance 200`) — система выросла до пояса Койпера.
+- Проверено: `node --check index.js` — синтаксис OK.
+
+---
+
+## Метки фич в коде
+
+Чтобы не терять контекст, крупные блоки помечены комментариями-маркерами вида
+`// ─── [FEATURE:XXX] начало/конец ───`. Список меток:
+
+| Метка | Что это | Где в `index.js` |
+|---|---|---|
+| `[FEATURE:PLANETS+]` | новые планеты Уран и Нептун + их текстуры | конфиг `PLANETS`, шейдеры |
+| `[FEATURE:MOONS]` | естественные спутники (Луна, галилеевы, Титан и т.д.) | конфиг `PLANETS`, `buildMoon` |
+| `[FEATURE:SATELLITES]` | искусственные аппараты (МКС, Hubble, Juno, Cassini, Voyager 2) | конфиг `PLANETS`, `buildSatellite` |
+| `[FEATURE:BELTS]` | пояс астероидов и пояс Койпера (InstancedMesh) | секция 5.7 |
+| `[FEATURE:RINGS]` | кольца Сатурна из нескольких полос | `createSaturnRings` |
+| `[FEATURE:ATMOSPHERE]` | fresnel-свечение атмосфер | `createAtmosphere` |
+
+Маркеры ищите поиском по строке `[FEATURE:`
 
 ---
 

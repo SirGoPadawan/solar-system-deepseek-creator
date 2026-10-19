@@ -1,7 +1,5 @@
-/* import * as THREE from 'three'
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js' */
-import * as THREE from 'https://unpkg.com'
-import { OrbitControls } from 'https://unpkg.com'
+import * as THREE from 'three'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 
 // ─────────────────────────────────────────────────────────────
 // КОНСТАНТЫ СЦЕНЫ
@@ -26,9 +24,18 @@ const MOTION_DIR = new THREE.Vector3(0, 1, 0)
   .applyEuler(new THREE.Euler(SYSTEM_TILT_X, 0, SYSTEM_TILT_Z, 'XYZ'))
   .normalize()
 
-// Описание планет: тип, радиус, расстояние от центра, скорость по орбите, скорость вращения вокруг оси
+// Описание планет: тип, радиус, расстояние от центра, скорость по орбите, скорость вращения вокруг оси.
+// Дополнительно: axialTilt (наклон оси), atmosphere (fresnel-свечение),
+//   moons — естественные спутники, artificial — искусственные аппараты.
+// ─── [FEATURE:PLANETS+] добавлены Уран и Нептун ───
 const PLANETS = [
-  { type: 'sun', radius: 3.2, distance: 0, orbitSpeed: 0, spinSpeed: 0.0015 },
+  {
+    type: 'sun',
+    radius: 3.2,
+    distance: 0,
+    orbitSpeed: 0,
+    spinSpeed: 0.0015
+  },
   {
     type: 'mercury',
     radius: 0.42,
@@ -41,35 +48,128 @@ const PLANETS = [
     radius: 0.72,
     distance: 8.0,
     orbitSpeed: 0.012,
-    spinSpeed: 0.003
+    spinSpeed: 0.003,
+    atmosphere: { color: 0xffd9a0, intensity: 0.45 },
+    // ─── [FEATURE:SATELLITES] ───
+    artificial: [
+      { name: 'Akatsuki', distance: 1.15, orbitSpeed: 0.07, inclination: 0.35 }
+    ]
+    // ───────────────────────────
   },
   {
     type: 'earth',
     radius: 0.85,
     distance: 11.2,
     orbitSpeed: 0.009,
-    spinSpeed: 0.02
+    spinSpeed: 0.02,
+    axialTilt: 0.41,
+    atmosphere: { color: 0x5aa9ff, intensity: 0.9 },
+    // ─── [FEATURE:MOONS] ───
+    moons: [
+      { name: 'Луна', radius: 0.23, distance: 1.75, orbitSpeed: 0.03, color: 0xcfcac2 }
+    ],
+    // ───────────────────────
+    // ─── [FEATURE:SATELLITES] ───
+    artificial: [
+      { name: 'МКС', distance: 1.05, orbitSpeed: 0.06, inclination: 0.5 },
+      { name: 'Hubble', distance: 1.28, orbitSpeed: 0.05, inclination: 0.22 }
+    ]
+    // ───────────────────────────
   },
   {
     type: 'mars',
     radius: 0.6,
     distance: 14.5,
     orbitSpeed: 0.007,
-    spinSpeed: 0.018
+    spinSpeed: 0.018,
+    axialTilt: 0.44,
+    atmosphere: { color: 0xff9a6a, intensity: 0.28 },
+    // ─── [FEATURE:MOONS] ───
+    moons: [
+      { name: 'Фобос', radius: 0.09, distance: 1.05, orbitSpeed: 0.06, color: 0x9a8f82 },
+      { name: 'Деймос', radius: 0.07, distance: 1.38, orbitSpeed: 0.045, color: 0x8a8073 }
+    ],
+    // ───────────────────────
+    // ─── [FEATURE:SATELLITES] ───
+    artificial: [
+      { name: 'Mars Orbiter', distance: 0.95, orbitSpeed: 0.07, inclination: 0.7 }
+    ]
+    // ───────────────────────────
   },
   {
     type: 'jupiter',
     radius: 1.65,
     distance: 19.5,
     orbitSpeed: 0.003,
-    spinSpeed: 0.03
+    spinSpeed: 0.03,
+    axialTilt: 0.05,
+    atmosphere: { color: 0xd8b48a, intensity: 0.35 },
+    // ─── [FEATURE:MOONS] ───
+    moons: [
+      { name: 'Ио', radius: 0.22, distance: 2.7, orbitSpeed: 0.04, color: 0xe8d868 },
+      { name: 'Европа', radius: 0.19, distance: 3.2, orbitSpeed: 0.033, color: 0xd9cbb0 },
+      { name: 'Ганимед', radius: 0.28, distance: 3.8, orbitSpeed: 0.026, color: 0xa89a86 },
+      { name: 'Каллисто', radius: 0.26, distance: 4.4, orbitSpeed: 0.02, color: 0x8a7f70 }
+    ],
+    // ───────────────────────
+    // ─── [FEATURE:SATELLITES] ───
+    artificial: [{ name: 'Juno', distance: 2.3, orbitSpeed: 0.05, inclination: 0.9 }]
+    // ───────────────────────────
   },
   {
     type: 'saturn',
     radius: 1.3,
     distance: 24.5,
     orbitSpeed: 0.002,
-    spinSpeed: 0.025
+    spinSpeed: 0.025,
+    axialTilt: 0.47,
+    atmosphere: { color: 0xf0e0b4, intensity: 0.3 },
+    // ─── [FEATURE:MOONS] ───
+    moons: [
+      { name: 'Энцелад', radius: 0.13, distance: 3.5, orbitSpeed: 0.05, color: 0xe8eef0 },
+      { name: 'Рея', radius: 0.16, distance: 3.95, orbitSpeed: 0.04, color: 0xc9c4bb },
+      { name: 'Титан', radius: 0.28, distance: 4.5, orbitSpeed: 0.03, color: 0xd9a24a }
+    ],
+    // ───────────────────────
+    // ─── [FEATURE:SATELLITES] ───
+    artificial: [
+      { name: 'Cassini', distance: 3.7, orbitSpeed: 0.045, inclination: 0.6 }
+    ]
+    // ───────────────────────────
+  },
+  {
+    type: 'uranus',
+    radius: 1.0,
+    distance: 29.0,
+    orbitSpeed: 0.0016,
+    spinSpeed: 0.028,
+    axialTilt: 1.71,
+    atmosphere: { color: 0x9fe8e6, intensity: 0.6 },
+    // ─── [FEATURE:MOONS] ───
+    moons: [
+      { name: 'Титания', radius: 0.14, distance: 1.75, orbitSpeed: 0.032, color: 0xbfc3c6 },
+      { name: 'Оберон', radius: 0.13, distance: 2.15, orbitSpeed: 0.026, color: 0xa9a29a }
+    ],
+    // ───────────────────────
+    // ─── [FEATURE:SATELLITES] ───
+    artificial: [
+      { name: 'Voyager 2', distance: 1.45, orbitSpeed: 0.05, inclination: 1.2 }
+    ]
+    // ───────────────────────────
+  },
+  {
+    type: 'neptune',
+    radius: 0.97,
+    distance: 33.0,
+    orbitSpeed: 0.0012,
+    spinSpeed: 0.03,
+    axialTilt: 0.49,
+    atmosphere: { color: 0x4a6bff, intensity: 0.75 },
+    // ─── [FEATURE:MOONS] ───
+    moons: [
+      { name: 'Тритон', radius: 0.16, distance: 1.85, orbitSpeed: 0.028, color: 0xd8ccc0 }
+    ]
+    // ───────────────────────
   }
 ]
 
@@ -113,14 +213,14 @@ renderer.toneMappingExposure = 2.4
 document.body.appendChild(renderer.domElement)
 
 const controls = new OrbitControls(camera, renderer.domElement)
-// Выставляем ракурс в точности как на рендере пользователя
-camera.position.set(0, 14, 28)
+// Выставляем ракурс так, чтобы в кадр входила вся система (до пояса Койпера)
+camera.position.set(0, 18, 42)
 controls.target.set(0, -1, 0)
 controls.enableDamping = true
 controls.dampingFactor = 0.05
 // Ограничиваем движение камеры, чтобы сцену нельзя было «потерять»
 controls.minDistance = 5
-controls.maxDistance = 120
+controls.maxDistance = 200
 controls.maxPolarAngle = Math.PI / 2.05
 
 // Мягкая маска для звезд и солнечной короны
@@ -321,6 +421,24 @@ const SATURN_BANDS = [
   '#8f7040',
   '#ecd9b4'
 ].map(hexToRgb)
+// ─── [FEATURE:PLANETS+] палитры Урана и Нептуна ───
+const URANUS_BANDS = [
+  '#8fd8d6',
+  '#bff0ee',
+  '#7fc6c6',
+  '#d8f7f5',
+  '#9adcd8',
+  '#bfe9e6'
+].map(hexToRgb)
+const NEPTUNE_BANDS = [
+  '#1b3a8f',
+  '#2a56c8',
+  '#1a2f7a',
+  '#3f74e0',
+  '#223f9e',
+  '#4a6fd6'
+].map(hexToRgb)
+// ────────────────────────────────────────────────
 
 // Пересчёт каждого пикселя текстуры по функции-шейдеру
 const paintPixels = (ctx, shader) => {
@@ -483,6 +601,24 @@ const saturnShader = makeBandedShader(SATURN_BANDS, {
   streakAmount: 0.1,
   polarDarken: 0.26
 })
+// ─── [FEATURE:PLANETS+] Уран почти без полос, Нептун — глубокий синий с потоками ───
+const uranusShader = makeBandedShader(URANUS_BANDS, {
+  warpSeed: 111,
+  warpAmount: 0.02,
+  smoothLo: 0.92,
+  streakSeed: 127,
+  streakAmount: 0.06,
+  polarDarken: 0.16
+})
+const neptuneShader = makeBandedShader(NEPTUNE_BANDS, {
+  warpSeed: 141,
+  warpAmount: 0.05,
+  smoothLo: 0.88,
+  streakSeed: 157,
+  streakAmount: 0.12,
+  polarDarken: 0.28
+})
+// ─────────────────────────────────────────────────────────────────────────────────
 
 // Большое Красное Пятно Юпитера
 const drawGreatRedSpot = (ctx) => {
@@ -511,7 +647,9 @@ const SHADERS = {
   earth: earthShader,
   mars: marsShader,
   jupiter: jupiterShader,
-  saturn: saturnShader
+  saturn: saturnShader,
+  uranus: uranusShader,
+  neptune: neptuneShader
 }
 const OVERLAYS = { jupiter: drawGreatRedSpot }
 
@@ -623,7 +761,175 @@ sunGlow.scale.set(10.5, 10.5, 1)
 // 5. ГЕНЕРАЦИЯ МИРОВ И ТОНКИХ ЛИНИЙ ОРБИТ
 const planets = []
 
-const createPlanet = ({ type, radius, distance, orbitSpeed, spinSpeed }) => {
+// ─── Вспомогательные билдеры тел: спутники, аппараты, кольца, атмосферы ───
+
+// Тонкое светящееся кольцо орбиты (для спутников и аппаратов), лежит в плоскости XZ
+const createOrbitRing = (radius, color, opacity) => {
+  const points = []
+  for (let i = 0; i <= 96; i++) {
+    const theta = (i / 96) * Math.PI * 2
+    points.push(
+      new THREE.Vector3(Math.cos(theta) * radius, 0, Math.sin(theta) * radius)
+    )
+  }
+  return new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(points),
+    new THREE.LineBasicMaterial({
+      color,
+      transparent: true,
+      opacity,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    })
+  )
+}
+
+// ─── [FEATURE:ATMOSPHERE] fresnel-свечение оболочки планеты ───
+const createAtmosphere = (radius, color, intensity) => {
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color().setHex(color, THREE.LinearSRGBColorSpace) },
+      uIntensity: { value: intensity }
+    },
+    vertexShader: `
+      varying vec3 vNormal;
+      varying vec3 vView;
+      void main() {
+        vNormal = normalize(normalMatrix * normal);
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vView = normalize(-mv.xyz);
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uColor;
+      uniform float uIntensity;
+      varying vec3 vNormal;
+      varying vec3 vView;
+      void main() {
+        float rim = pow(1.0 - abs(dot(normalize(vNormal), normalize(vView))), 3.0);
+        gl_FragColor = vec4(uColor, rim * uIntensity);
+      }
+    `,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    side: THREE.BackSide,
+    depthWrite: false,
+    toneMapped: false
+  })
+  return new THREE.Mesh(new THREE.SphereGeometry(radius * 1.07, 48, 48), material)
+}
+// ───────────────────────────────────────────────────────────────
+
+// ─── [FEATURE:RINGS] кольца Сатурна: несколько полос + щели между ними ───
+const createSaturnRings = (radius) => {
+  const group = new THREE.Group()
+  const bands = [
+    { inner: 1.25, outer: 1.55, opacity: 0.55, color: 0xcbb083 },
+    { inner: 1.6, outer: 1.95, opacity: 0.32, color: 0xb89a6a },
+    { inner: 2.0, outer: 2.32, opacity: 0.5, color: 0xd8c39a },
+    { inner: 2.36, outer: 2.5, opacity: 0.26, color: 0xa88d67 }
+  ]
+  bands.forEach((b) => {
+    const geo = new THREE.RingGeometry(
+      radius * b.inner,
+      radius * b.outer,
+      96
+    ).rotateX(-Math.PI / 2)
+    const ring = new THREE.Mesh(
+      geo,
+      new THREE.MeshStandardMaterial({
+        color: b.color,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: b.opacity,
+        roughness: 0.9,
+        metalness: 0.0
+      })
+    )
+    ring.receiveShadow = true
+    group.add(ring)
+  })
+  return group
+}
+// ──────────────────────────────────────────────────────────────────────────
+
+// ─── [FEATURE:MOONS] естественный спутник планеты ───
+const buildMoon = (moon) => {
+  const orbit = new THREE.Object3D()
+  orbit.rotation.x = (Math.random() - 0.5) * 0.35 // лёгкий наклон плоскости спутника
+  orbit.rotation.z = (Math.random() - 0.5) * 0.2
+
+  const mesh = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(moon.radius, 2),
+    new THREE.MeshStandardMaterial({
+      color: moon.color,
+      roughness: 0.95,
+      metalness: 0.0,
+      flatShading: true
+    })
+  )
+  mesh.position.x = moon.distance
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  orbit.add(mesh)
+  orbit.add(createOrbitRing(moon.distance, 0x8fa6ff, 0.07))
+  return { orbit, mesh, speed: moon.orbitSpeed }
+}
+// ────────────────────────────────────────────────────
+
+// ─── [FEATURE:SATELLITES] искусственный аппарат: корпус + панели + антенна + маяк ───
+const buildSatellite = (scale) => {
+  const group = new THREE.Object3D()
+
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(0.16, 0.12, 0.12),
+    new THREE.MeshStandardMaterial({ color: 0xc8ccd4, roughness: 0.35, metalness: 0.9 })
+  )
+  group.add(body)
+
+  const panelMat = new THREE.MeshStandardMaterial({
+    color: 0x24427f,
+    roughness: 0.3,
+    metalness: 0.6,
+    emissive: 0x14306a,
+    emissiveIntensity: 0.7
+  })
+  const panelGeo = new THREE.BoxGeometry(0.26, 0.012, 0.18)
+  const left = new THREE.Mesh(panelGeo, panelMat)
+  left.position.x = -0.24
+  const right = new THREE.Mesh(panelGeo, panelMat)
+  right.position.x = 0.24
+  group.add(left)
+  group.add(right)
+
+  const dish = new THREE.Mesh(
+    new THREE.ConeGeometry(0.07, 0.06, 12),
+    new THREE.MeshStandardMaterial({ color: 0xe3e7ec, roughness: 0.4, metalness: 0.7 })
+  )
+  dish.rotation.x = Math.PI / 2
+  dish.position.set(0, 0.1, 0.03)
+  group.add(dish)
+
+  // Мигающий маяк — его прозрачность анимируется в игровом цикле
+  const beaconMat = new THREE.MeshBasicMaterial({
+    color: 0xff4040,
+    transparent: true,
+    toneMapped: false
+  })
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8), beaconMat)
+  beacon.position.set(0, -0.1, 0)
+  group.add(beacon)
+
+  group.scale.setScalar(scale)
+  return { group, beaconMat }
+}
+// ─────────────────────────────────────────────────────────────────────────────────
+
+const createPlanet = (config) => {
+  const { type, radius, distance, orbitSpeed, spinSpeed, axialTilt, moons, artificial } =
+    config
+
   // Группа вращается вокруг Y — вместе с ней движется планета и её орбита
   const orbitGroup = new THREE.Object3D()
   orbitGroup.rotation.x = ORBIT_TILT
@@ -653,6 +959,17 @@ const createPlanet = ({ type, radius, distance, orbitSpeed, spinSpeed }) => {
     orbitGroup.add(orbitLine)
   }
 
+  // Точка планеты: к ней крепятся спутники и аппараты —
+  // они НЕ наследуют наклон оси самой планеты
+  const holder = new THREE.Object3D()
+  holder.position.x = distance
+  orbitGroup.add(holder)
+
+  // Наклон оси: внутри живёт сама планета, её атмосфера и кольца
+  const tiltGroup = new THREE.Object3D()
+  if (axialTilt) tiltGroup.rotation.z = axialTilt
+  holder.add(tiltGroup)
+
   const texture = createProPlanetTexture(type, textureSize(radius))
   const material =
     type === 'sun'
@@ -669,32 +986,57 @@ const createPlanet = ({ type, radius, distance, orbitSpeed, spinSpeed }) => {
     new THREE.SphereGeometry(radius, segments, segments),
     material
   )
-  mesh.position.x = distance
   if (type !== 'sun') {
     mesh.castShadow = true
     mesh.receiveShadow = true
   }
-  orbitGroup.add(mesh)
+  tiltGroup.add(mesh)
 
-  if (type === 'saturn') {
-    const ringGeo = new THREE.RingGeometry(
-      radius * 1.3,
-      radius * 2.4,
-      64
-    ).rotateX(Math.PI / 2)
-    const ringMesh = new THREE.Mesh(
-      ringGeo,
-      new THREE.MeshStandardMaterial({
-        color: 0xa88d67,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.65
-      })
+  // ─── [FEATURE:ATMOSPHERE] ───
+  if (config.atmosphere) {
+    tiltGroup.add(
+      createAtmosphere(
+        radius,
+        config.atmosphere.color,
+        config.atmosphere.intensity
+      )
     )
-    mesh.add(ringMesh)
   }
 
-  planets.push({ mesh, orbitGroup, orbitSpeed, spinSpeed })
+  // ─── [FEATURE:RINGS] ───
+  if (type === 'saturn') {
+    tiltGroup.add(createSaturnRings(radius))
+  }
+
+  // ─── [FEATURE:MOONS] ───
+  const moonRigs = []
+  if (moons) {
+    moons.forEach((m) => {
+      const rig = buildMoon(m)
+      holder.add(rig.orbit)
+      moonRigs.push(rig)
+    })
+  }
+
+  // ─── [FEATURE:SATELLITES] ───
+  const satRigs = []
+  if (artificial) {
+    artificial.forEach((s) => {
+      const orbit = new THREE.Object3D()
+      orbit.rotation.x = s.inclination || 0
+      orbit.rotation.z = (Math.random() - 0.5) * 0.25
+      holder.add(orbit)
+
+      const scale = Math.max(0.3, Math.min(0.7, radius * 0.5))
+      const sat = buildSatellite(scale)
+      sat.group.position.x = s.distance
+      orbit.add(sat.group)
+      orbit.add(createOrbitRing(s.distance, 0x66ffcc, 0.16))
+      satRigs.push({ orbit, speed: s.orbitSpeed, satellite: sat })
+    })
+  }
+
+  planets.push({ mesh, orbitGroup, holder, orbitSpeed, spinSpeed, moonRigs, satRigs })
   return mesh
 }
 
@@ -706,6 +1048,97 @@ PLANETS.forEach((config) => {
 
 // Ореол привязываем к Солнцу, чтобы он двигался вместе с ним
 if (sunMesh) sunMesh.add(sunGlow)
+
+// 5.7 ПОЯСА МАЛЫХ ТЕЛ: астероиды (между Марсом и Юпитером) и пояс Койпера
+// ─── [FEATURE:BELTS] ───
+const makeBelt = ({
+  count,
+  inner,
+  outer,
+  ySpread,
+  scaleMin,
+  scaleMax,
+  speedMin,
+  speedMax,
+  color
+}) => {
+  const group = new THREE.Group()
+  group.rotation.x = ORBIT_TILT
+  world.add(group)
+
+  const inst = new THREE.InstancedMesh(
+    new THREE.IcosahedronGeometry(1, 0),
+    new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.95,
+      metalness: 0.05,
+      flatShading: true
+    }),
+    count
+  )
+  inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+  inst.frustumCulled = false
+  group.add(inst)
+
+  const items = []
+  for (let i = 0; i < count; i++) {
+    items.push({
+      radius: inner + Math.random() * (outer - inner),
+      y: (Math.random() - 0.5) * ySpread,
+      scale: scaleMin + Math.random() * (scaleMax - scaleMin),
+      angle: Math.random() * Math.PI * 2,
+      speed: speedMin + Math.random() * (speedMax - speedMin),
+      rx: Math.random() * Math.PI * 2,
+      rz: Math.random() * Math.PI * 2
+    })
+  }
+  return { inst, items, dummy: new THREE.Object3D() }
+}
+
+const updateBelt = (belt, timeScale) => {
+  const d = belt.dummy
+  for (let i = 0; i < belt.items.length; i++) {
+    const a = belt.items[i]
+    a.angle += a.speed * timeScale
+    d.position.set(
+      Math.cos(a.angle) * a.radius,
+      a.y,
+      Math.sin(a.angle) * a.radius
+    )
+    d.rotation.set(a.rx + a.angle, a.angle * 1.5, a.rz)
+    d.scale.setScalar(a.scale)
+    d.updateMatrix()
+    belt.inst.setMatrixAt(i, d.matrix)
+  }
+  belt.inst.instanceMatrix.needsUpdate = true
+}
+
+// Главный пояс астероидов (между Марсом 14.5 и Юпитером 19.5)
+const asteroidBelt = makeBelt({
+  count: 700,
+  inner: 16.0,
+  outer: 18.6,
+  ySpread: 0.6,
+  scaleMin: 0.03,
+  scaleMax: 0.12,
+  speedMin: 0.004,
+  speedMax: 0.008,
+  color: 0x8a8175
+})
+
+// Пояс Койпера (за Нептуном) — ледяной «мусор»
+const kuiperBelt = makeBelt({
+  count: 500,
+  inner: 37,
+  outer: 45,
+  ySpread: 1.6,
+  scaleMin: 0.04,
+  scaleMax: 0.14,
+  speedMin: 0.0012,
+  speedMax: 0.0024,
+  color: 0x7f8fa0
+})
+// ──────────────────────
 
 // 5.5 ВИНТОВЫЕ СЛЕДЫ ПЛАНЕТ (спирали, как на референсе solar.jpg)
 // След строится аналитически: берём орбиту планеты за прошедшее время («выдержка»)
@@ -720,7 +1153,9 @@ const trailColors = {
   earth: 0x5aa9ff,
   mars: 0xff7a4a,
   jupiter: 0xd8b48a,
-  saturn: 0xe6d3a6
+  saturn: 0xe6d3a6,
+  uranus: 0x9fe8e6,
+  neptune: 0x4a6bff
 }
 
 const createTrailLine = (color) => {
@@ -802,11 +1237,29 @@ function animate() {
   // Прирост за кадр умножаем на delta, чтобы скорость не зависела от FPS
   const delta = clock.getDelta()
   const timeScale = delta * 60
+  const elapsed = clock.elapsedTime
 
   planets.forEach((p) => {
     p.orbitGroup.rotation.y += p.orbitSpeed * timeScale // Вращение по орбитам
     p.mesh.rotation.y += p.spinSpeed * timeScale // Вращение вокруг своей оси
+
+    // ─── [FEATURE:MOONS] спутники кружатся вокруг своей планеты ───
+    p.moonRigs.forEach((m) => {
+      m.orbit.rotation.y += m.speed * timeScale
+    })
+
+    // ─── [FEATURE:SATELLITES] аппараты + мигающий маяк ───
+    p.satRigs.forEach((s, i) => {
+      s.orbit.rotation.y += s.speed * timeScale
+      s.satellite.group.rotation.y += 0.6 * timeScale
+      s.satellite.beaconMat.opacity =
+        0.15 + 0.85 * Math.abs(Math.sin(elapsed * 3 + i))
+    })
   })
+
+  // ─── [FEATURE:BELTS] движение малых тел по поясам ───
+  updateBelt(asteroidBelt, timeScale)
+  updateBelt(kuiperBelt, timeScale)
 
   // Полёт сквозь космос: звёзды стримятся навстречу, оборачиваясь в кубе (бесконечное небо)
   starTravel += MOTION_SPEED * delta

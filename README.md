@@ -63,7 +63,9 @@ PORT=3000 npm start
 | `README.md` | этот файл |
 | `PROGRESS.md` | журнал разработки (что и зачем менялось) |
 | `package.json` | зависимости и скрипты |
-| `node_modules/` | зависимости (three и др.) |
+| `vendor/` | **закоммиченный** three.js + OrbitControls (сайт не зависит от `node_modules`) |
+| `node_modules/` | локальные зависимости (в `.gitignore`, для разработки) |
+| `.nojekyll` | отключает Jekyll на GitHub Pages |
 | `solar.jpg`, `2.png` | референсы внешнего вида (если добавлены в проект) |
 
 ---
@@ -87,6 +89,49 @@ const TRAIL_TIME = 16          // длина спиральных следов
   и т.п. тоже в `index.js`.
 
 Подробнее обо всех этапах — в `PROGRESS.md`.
+
+---
+
+## 🌐 Публикация на GitHub Pages
+
+Проект — чистая статика, поэтому публикуется «как есть». Важно: `node_modules`
+в `.gitignore` **не** коммитится, поэтому three.js закоммичен отдельно в `vendor/`,
+а `index.html` через `importmap` ссылается именно на `vendor/`. Значит на GitHub Pages
+всё заведётся без сборки.
+
+### Первичная настройка (один раз)
+
+1. Запушьте ветку `main`:
+   ```bash
+   git add .
+   git commit -m "Add moons, belts and GitHub Pages setup"
+   git push origin main
+   ```
+2. В репозитории: **Settings → Pages**.
+3. **Source:** `Deploy from a branch`.
+4. **Branch:** `main` + папка `/ (root)` → **Save**.
+5. Через минуту сайт будет доступен:
+   **https://sirgopadawan.github.io/solar-system-deepseek-creator/**
+
+### Альтернатива: three.js с CDN (без `vendor/`)
+
+Если не хочется хранить three в репозитории, замените `importmap` в `index.html` на:
+
+```html
+<script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.186.1/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.186.1/examples/jsm/"
+    }
+  }
+</script>
+```
+
+Тогда `vendor/` не нужен, но сайт будет зависеть от интернета и CDN.
+
+> Почему не «открыть index.html двойным кликом»: ES-модули не грузятся с `file://`.
+> На GitHub Pages это http, поэтому всё работает; локально используйте `npm start`.
 
 ---
 

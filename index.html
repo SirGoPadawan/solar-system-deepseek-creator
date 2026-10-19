@@ -2,7 +2,7 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <title>Three.js Local Scene</title>
+    <title>Солнечная система — Three.js</title>
     <style>
       body {
         margin: 0;
@@ -10,12 +10,12 @@
         background-color: #000;
       }
     </style>
-    <!-- Карта импортов указывает на локальные файлы в node_modules -->
+    <!-- Карта импортов указывает на локальные файлы в vendor/ (не зависит от node_modules) -->
     <script type="importmap">
       {
         "imports": {
-          "three": "./node_modules/three/build/three.module.js",
-          "three/addons/": "./node_modules/three/examples/jsm/"
+          "three": "./vendor/three/three.module.js",
+          "three/addons/": "./vendor/three/addons/"
         }
       }
     </script>

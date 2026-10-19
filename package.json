@@ -15,7 +15,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "homepage": "https://sirgopadawan.github.io/solar-system-deepseek-creator/",
   "dependencies": {
     "@onirenaud/node-webgl": "^0.2.0",
     "canvas": "^3.2.3",
