@@ -1,8 +1,9 @@
 // ─────────────────────────────────────────────────────────────
 // ─── [FEATURE:UI] панель управления (слева вверху) ───
-// Чистый DOM, без THREE. Стили — в index.html.
+// Чистый DOM, без THREE. Стили — в styles.css.
 // Здесь только глобальные настройки: скорость системы, тумблеры
-// движения/объектов и список планет (показать/скрыть, выбрать).
+// движения/объектов, список планет (показать/скрыть, выбрать)
+// и блок галактики (фон, «другая галактика», вид снаружи).
 // Параметры конкретной планеты живут в карточке над планетой (card.js).
 // ─────────────────────────────────────────────────────────────
 
@@ -11,7 +12,8 @@ export const createControls = ({
   onSpeed = () => {},
   onToggle = () => {},
   onPlanetVisible = () => {},
-  onPlanetSelect = () => {}
+  onPlanetSelect = () => {},
+  onView = () => {}
 }) => {
   const root = document.createElement('div')
   root.className = 'controls'
@@ -49,8 +51,18 @@ export const createControls = ({
         <label class="chk"><input type="checkbox" data-toggle="comets" checked> Кометы</label>
         <label class="chk"><input type="checkbox" data-toggle="tesla" checked> Tesla / Starman</label>
         <label class="chk"><input type="checkbox" data-toggle="nebula" checked> Туманность</label>
-        <label class="chk"><input type="checkbox" data-toggle="galaxy" checked> Галактика (фон)</label>
         <label class="chk"><input type="checkbox" data-toggle="dust" checked> Космическая пыль</label>
+      </div>
+
+      <div class="ctl-block">
+        <div class="ctl-title">Галактика <span class="ctl-note">(фон)</span></div>
+        <label class="chk"><input type="checkbox" data-toggle="galaxy" checked> Показывать</label>
+        <div class="gal-info" data-role="galInfo">…</div>
+        <div class="gal-row">
+          <button data-act="galRandom" title="Сгенерировать другую галактику">🎲 Другая</button>
+          <button data-act="galView" title="Отлететь и посмотреть галактику целиком">🌀 Вид</button>
+          <button data-act="sysView" title="Вернуться к Солнечной системе">🪐 Система</button>
+        </div>
       </div>
 
       <div class="ctl-block">
@@ -78,6 +90,7 @@ export const createControls = ({
 
   const speedEl = q('[data-role="speed"]')
   const pauseBtn = q('[data-act="pause"]')
+  const galInfoEl = q('[data-role="galInfo"]')
 
   // ── События ──
   root.addEventListener('click', (e) => {
@@ -87,7 +100,11 @@ export const createControls = ({
         root.classList.toggle('collapsed')
         return
       }
-      if (el.dataset.act) return onSpeed(el.dataset.act)
+      if (el.dataset.act) {
+        const act = el.dataset.act
+        if (act === 'galRandom' || act === 'galView' || act === 'sysView') return onView(act)
+        return onSpeed(act)
+      }
       if (el.dataset.select !== undefined) return onPlanetSelect(Number(el.dataset.select))
     }
   })
@@ -108,6 +125,9 @@ export const createControls = ({
     setPaused: (paused) => {
       pauseBtn.textContent = paused ? '▶' : '⏸'
       pauseBtn.classList.toggle('active', paused)
+    },
+    setGalaxyInfo: (text) => {
+      galInfoEl.textContent = text
     },
     setPlanetChecked: (index, value) => {
       const box = root.querySelector(`input[data-planet="${index}"]`)

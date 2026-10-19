@@ -9,7 +9,19 @@ import { starTexture, glowTexture } from './textures.js'
 // математика, никаких THREE-объектов), а `createGalaxy` уже собирает
 // из неё THREE.Points. Вся геометрия — один BufferGeometry, рисуется
 // одним вызовом, поэтому даже 100k звёзд ничего не стоят.
+//
+// Галактику можно пересоздавать: `randomGalaxyConfig()` даёт случайную
+// (рукава/закрутка/цвета), `dispose()` освобождает ресурсы прошлой.
 // ─────────────────────────────────────────────────────────────
+
+// Палитры: ядро → середина → концы рукавов
+export const GALAXY_PRESETS = [
+  { name: 'Классика', coreColor: 0xfff1c9, midColor: 0x8fb4ff, armColor: 0x5b2bd6 },
+  { name: 'Ледяная', coreColor: 0xe8f4ff, midColor: 0x9fd8ff, armColor: 0x2b4fd6 },
+  { name: 'Розовая', coreColor: 0xffe3c8, midColor: 0xff9ad0, armColor: 0x9b2bd6 },
+  { name: 'Изумруд', coreColor: 0xf2fff8, midColor: 0x8fffd6, armColor: 0x1f9f7a },
+  { name: 'Уголёк', coreColor: 0xffd9a0, midColor: 0xff8a4a, armColor: 0xa02020 }
+]
 
 // Изолированная функция генерации звёздного скопления.
 // Принимает только числа/цвета, возвращает типизированные массивы.
@@ -102,9 +114,29 @@ export const generateGalaxyPoints = (options = {}) => {
   return { positions, colors }
 }
 
+// Случайная галактика: берём палитру и разбрасываем форму/закрутку.
+export const randomGalaxyConfig = () => {
+  const palette = GALAXY_PRESETS[Math.floor(Math.random() * GALAXY_PRESETS.length)]
+  const r2 = (v) => Math.round(v * 100) / 100
+  return {
+    ...GALAXY,
+    ...palette,
+    branches: 2 + Math.floor(Math.random() * 6), // 2..7 рукавов
+    spin: r2(0.55 + Math.random() * 1.35), // 0.55..1.9 оборота
+    randomness: r2(0.16 + Math.random() * 0.22),
+    randomnessPower: r2(1.6 + Math.random() * 1.4),
+    radius: Math.round(260 + Math.random() * 260), // 260..520
+    thickness: r2(0.03 + Math.random() * 0.05),
+    tiltX: r2(0.7 + Math.random() * 0.7),
+    tiltZ: r2(Math.random() * 1.0),
+    coreScale: Math.round(80 + Math.random() * 40)
+  }
+}
+
 // ── Сборка галактики в объекты THREE ──
 export const createGalaxy = (options = GALAXY) => {
   const {
+    name = 'Галактика',
     count,
     branches,
     radius,
@@ -144,23 +176,22 @@ export const createGalaxy = (options = GALAXY) => {
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
 
-  const points = new THREE.Points(
-    geometry,
-    new THREE.PointsMaterial({
-      size,
-      map: starTexture,
-      vertexColors: true,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      alphaTest: 0.01,
-      // без затухания по расстоянию: точка одинакова и вблизи, и вдали
-      sizeAttenuation: false,
-      fog: false,
-      toneMapped: false,
-      opacity
-    })
-  )
+  const material = new THREE.PointsMaterial({
+    size,
+    map: starTexture,
+    vertexColors: true,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    alphaTest: 0.01,
+    // без затухания по расстоянию: точка одинакова и вблизи, и вдали
+    sizeAttenuation: false,
+    fog: false,
+    toneMapped: false,
+    opacity
+  })
+
+  const points = new THREE.Points(geometry, material)
   points.frustumCulled = false // галактика огромная — пусть рисуется всегда
   points.renderOrder = -0.6 // после туманности (-1), до свечения фона и звёзд
 
@@ -175,7 +206,7 @@ export const createGalaxy = (options = GALAXY) => {
   if (coreGlow) {
     core = new THREE.Sprite(
       new THREE.SpriteMaterial({
-        map: glowTexture,
+        map: glowTexture, // общая текстура — её НЕ диспозим
         color: coreColor,
         transparent: true,
         blending: THREE.AdditiveBlending,
@@ -195,5 +226,20 @@ export const createGalaxy = (options = GALAXY) => {
     points.rotation.y += rotationSpeed * delta * motionScale
   }
 
-  return { group, points, core, update }
+  // Нормаль диска — нужна, чтобы поставить камеру «в плане» (посмотреть галактику)
+  const getNormal = (out = new THREE.Vector3()) =>
+    out.set(0, 1, 0).applyEuler(group.rotation).normalize()
+
+  // Строка для панели управления
+  const info = `${name} · рукавов: ${branches} · закрутка: ${spin.toFixed(2)} · звёзд: ${count.toLocaleString('ru-RU')}`
+
+  // Освобождение ресурсов при генерации новой галактики
+  const dispose = () => {
+    geometry.dispose()
+    material.dispose()
+    if (core) core.material.dispose()
+    if (group.parent) group.parent.remove(group)
+  }
+
+  return { group, points, core, update, getNormal, info, dispose }
 }

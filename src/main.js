@@ -15,7 +15,7 @@ import {
 import { createPlanet, createSunEffects } from './bodies.js'
 import { createStarfield, createNebula, createSpaceGlow, createSpaceFog } from './sky.js'
 import { createEclipticGrid } from './grid.js'
-import { createGalaxy } from './galaxy.js'
+import { createGalaxy, randomGalaxyConfig } from './galaxy.js'
 import { meanMotion, orbitLocal } from './orbit.js'
 import { makeBelt, updateBelt } from './belts.js'
 import { createComets, createStarman } from './comets.js'
@@ -38,8 +38,8 @@ scene.add(world)
 const camera = new THREE.PerspectiveCamera(
   50,
   window.innerWidth / window.innerHeight,
-  0.1,
-  1000
+  0.5,
+  6000 // далеко: нужно, чтобы можно было отлететь и посмотреть галактику целиком
 )
 
 let renderer
@@ -71,7 +71,7 @@ controls.target.set(0, -1, 0)
 controls.enableDamping = true
 controls.dampingFactor = 0.05
 controls.minDistance = 5
-controls.maxDistance = 200
+controls.maxDistance = 1600 // можно отлететь и рассмотреть галактику снаружи
 controls.maxPolarAngle = Math.PI / 2.05
 
 // 2. Небо: звёзды + туманность + лёгкое свечение фона
@@ -89,7 +89,7 @@ const spaceGlow = createSpaceGlow()
 scene.add(spaceGlow)
 
 // ─── [FEATURE:GALAXY] фоновая спиральная галактика вокруг системы ───
-const galaxy = createGalaxy()
+let galaxy = createGalaxy()
 scene.add(galaxy.group)
 
 // 3. Свет (намеренно приглушённый — больше «темноты» и контраста)
@@ -158,12 +158,20 @@ const options = {
 }
 const planetVisible = planets.map(() => true)
 
+// Когда камера отлетает наружу (смотрим галактику целиком), сферический
+// скайбокс изнутри уже не работает — прячем его, чтобы не торчали «стенки».
+let outsideView = false
+const FOG_DENSITY = spaceFog.density // «настоящая» плотность тумана (см. sky.js)
+
 const refreshVisibility = () => {
-  starfield.points.visible = options.stars
-  nebula.visible = options.nebula
-  galaxy.group.visible = options.galaxy
-  spaceGlow.visible = options.dust
+  const sky = !outsideView
+  starfield.points.visible = options.stars && sky
+  nebula.visible = options.nebula && sky
+  spaceGlow.visible = options.dust && sky
+  // Туман не выключаем (иначе пересборка всех материалов), а обнуляем плотность
   scene.fog = options.dust ? spaceFog : null
+  if (options.dust) spaceFog.density = sky ? FOG_DENSITY : 0
+  galaxy.group.visible = options.galaxy
   eclipticGrid.visible = options.grid
   asteroidBelt.inst.visible = options.belts
   kuiperBelt.inst.visible = options.belts
@@ -178,6 +186,12 @@ const refreshVisibility = () => {
   })
 }
 refreshVisibility()
+
+const setOutsideView = (value) => {
+  if (value === outsideView) return
+  outsideView = value
+  refreshVisibility()
+}
 
 // 6. Интерфейс: панель слева вверху (глобальные настройки) + карточка планеты
 let selected = null
@@ -220,6 +234,52 @@ const card = createPlanetCard({
 
 const tooltip = createHoverTooltip()
 
+// ─── [FEATURE:GALAXY] камера: вылет «наружу» посмотреть галактику и назад ───
+const SYSTEM_CAM = {
+  pos: new THREE.Vector3(0, 18, 42),
+  target: new THREE.Vector3(0, -1, 0)
+}
+let camFlight = null
+
+const flyTo = (pos, target, duration = 1.4) => {
+  camFlight = {
+    fromPos: camera.position.clone(),
+    toPos: pos.clone(),
+    fromTarget: controls.target.clone(),
+    toTarget: target.clone(),
+    t: 0,
+    duration
+  }
+  controls.enabled = false // во время полёта управление временно отдаём анимации
+}
+
+const viewSystem = () => flyTo(SYSTEM_CAM.pos, SYSTEM_CAM.target)
+
+const viewGalaxy = () => {
+  const n = galaxy.getNormal() // нормаль диска галактики
+  // смотрим на диск «в три четверти» — чуть под углом к нормали
+  const ref = Math.abs(n.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 0, 1)
+  const side = ref.clone().cross(n).normalize()
+  n.applyAxisAngle(side, 0.55)
+  // Держим камеру заметно выше плоскости: OrbitControls ограничивает угол снизу
+  if (n.y < 0) n.negate()
+  if (n.y < 0.25) {
+    n.y = 0.25
+    n.normalize()
+  }
+  flyTo(n.multiplyScalar(1250), new THREE.Vector3(0, 0, 0))
+}
+
+// Пересоздать галактику — «другая галактика» (другая форма и палитра)
+const regenerateGalaxy = () => {
+  const visible = galaxy.group.visible
+  galaxy.dispose()
+  galaxy = createGalaxy(randomGalaxyConfig())
+  galaxy.group.visible = visible
+  scene.add(galaxy.group)
+  controlsUi.setGalaxyInfo(galaxy.info)
+}
+
 const select = (rig) => {
   if (selected && selected !== rig) setHighlight(selected, false)
   selected = rig
@@ -255,10 +315,16 @@ const controlsUi = createControls({
     if (!value && selectedIndex === index) select(null)
     refreshVisibility()
   },
-  onPlanetSelect: (index) => select(planets[index])
+  onPlanetSelect: (index) => select(planets[index]),
+  onView: (act) => {
+    if (act === 'galRandom') regenerateGalaxy()
+    else if (act === 'galView') viewGalaxy()
+    else if (act === 'sysView') viewSystem()
+  }
 })
 controlsUi.setSpeed('×' + systemSpeed)
 controlsUi.setPaused(paused)
+controlsUi.setGalaxyInfo(galaxy.info)
 
 // 7. Мышь: клик по планете — карточка, наведение — подсказка
 const raycaster = new THREE.Raycaster()
@@ -372,6 +438,23 @@ function animate() {
 
   // ─── [FEATURE:GALAXY] галактика медленно «живёт» (вращается целиком) ───
   galaxy.update(delta, motionScale)
+
+  // Скайбокс-сферы работают только «изнутри» — снаружи их прячем
+  setOutsideView(camera.position.length() > 460)
+
+  // Полёт камеры (наружу к галактике / назад к системе)
+  if (camFlight) {
+    camFlight.t += delta
+    const k = Math.min(1, camFlight.t / camFlight.duration)
+    const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2 // easeInOutQuad
+    camera.position.lerpVectors(camFlight.fromPos, camFlight.toPos, e)
+    controls.target.lerpVectors(camFlight.fromTarget, camFlight.toTarget, e)
+    camera.lookAt(controls.target)
+    if (k >= 1) {
+      camFlight = null
+      controls.enabled = true
+    }
+  }
 
   controls.update()
   renderer.render(scene, camera)
