@@ -15,6 +15,7 @@ import {
 import { createPlanet, createSunEffects } from './bodies.js'
 import { createStarfield, createNebula, createSpaceGlow, createSpaceFog } from './sky.js'
 import { createEclipticGrid } from './grid.js'
+import { createGalaxy } from './galaxy.js'
 import { meanMotion, orbitLocal } from './orbit.js'
 import { makeBelt, updateBelt } from './belts.js'
 import { createComets, createStarman } from './comets.js'
@@ -87,6 +88,10 @@ scene.fog = spaceFog
 const spaceGlow = createSpaceGlow()
 scene.add(spaceGlow)
 
+// ─── [FEATURE:GALAXY] фоновая спиральная галактика вокруг системы ───
+const galaxy = createGalaxy()
+scene.add(galaxy.group)
+
 // 3. Свет (намеренно приглушённый — больше «темноты» и контраста)
 const ambientLight = new THREE.AmbientLight(0x121522, 0.8)
 scene.add(ambientLight)
@@ -148,6 +153,7 @@ const options = {
   comets: true, // кометы
   tesla: true, // Tesla / Starman
   nebula: true, // туманность
+  galaxy: true, // фоновая спиральная галактика
   dust: true // космическая пыль (туман + свечение фона)
 }
 const planetVisible = planets.map(() => true)
@@ -155,6 +161,7 @@ const planetVisible = planets.map(() => true)
 const refreshVisibility = () => {
   starfield.points.visible = options.stars
   nebula.visible = options.nebula
+  galaxy.group.visible = options.galaxy
   spaceGlow.visible = options.dust
   scene.fog = options.dust ? spaceFog : null
   eclipticGrid.visible = options.grid
@@ -362,6 +369,9 @@ function animate() {
 
   // Медленный поворот скайбокса-туманности
   nebula.rotation.y += 0.0004 * delta * 60 * motionScale
+
+  // ─── [FEATURE:GALAXY] галактика медленно «живёт» (вращается целиком) ───
+  galaxy.update(delta, motionScale)
 
   controls.update()
   renderer.render(scene, camera)

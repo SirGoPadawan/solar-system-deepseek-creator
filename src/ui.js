@@ -49,6 +49,7 @@ export const createControls = ({
         <label class="chk"><input type="checkbox" data-toggle="comets" checked> Кометы</label>
         <label class="chk"><input type="checkbox" data-toggle="tesla" checked> Tesla / Starman</label>
         <label class="chk"><input type="checkbox" data-toggle="nebula" checked> Туманность</label>
+        <label class="chk"><input type="checkbox" data-toggle="galaxy" checked> Галактика (фон)</label>
         <label class="chk"><input type="checkbox" data-toggle="dust" checked> Космическая пыль</label>
       </div>
 
