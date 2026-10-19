@@ -4,9 +4,10 @@
 //
 //  1. синтаксис всех JS-файлов (node --check);
 //  2. связи import/export между модулями src/;
-//  3. существование всего API three, которое мы используем.
+//  3. существование всего API three, которое мы используем;
+//  4. существование вызываемых методов (`.метод()`) — в three или у нас.
 //
-// Пункт 3 появился после реального бага: в сцене использовался
+// Пункты 3–4 появились после реального бага: в сцене использовался
 // THREE.Color().mix(), которого в three r186 НЕТ — падала вся сцена
 // ещё до первого кадра. Скрипт ловит такие вещи статически.
 // ─────────────────────────────────────────────────────────────
@@ -37,7 +38,7 @@ const allFiles = rootFiles.concat(srcFiles.map((f) => 'src/' + f))
 let checked = 0
 
 // ── 1. Синтаксис ─────────────────────────────────────────────
-console.log('\n[1/3] синтаксис')
+console.log('\n[1/4] синтаксис')
 allFiles.forEach((f) => {
   try {
     execFileSync(process.execPath, ['--check', path.join(ROOT, f)], { stdio: 'pipe' })
@@ -48,7 +49,7 @@ allFiles.forEach((f) => {
 if (!failed) ok(allFiles.length + ' файлов разбираются')
 
 // ── 2. import/export между модулями ──────────────────────────
-console.log('\n[2/3] связи импортов')
+console.log('\n[2/4] связи импортов')
 let linkErrors = 0
 const exportsOf = (code) => {
   const names = new Set()
@@ -105,7 +106,7 @@ allFiles.forEach((f) => {
 if (!linkErrors) ok('все относительные импорты разрешаются')
 
 // ── 3. API three ─────────────────────────────────────────────
-console.log('\n[3/3] API three (вендорный бандл)')
+console.log('\n[3/4] API three (вендорный бандл)')
 // рендерер и прочее живут в three.module.js, ядро — в three.core.js: смотрим оба
 const bundle =
   fs.readFileSync(path.join(ROOT, 'vendor/three/three.core.js'), 'utf8') +
@@ -155,7 +156,53 @@ srcFiles.forEach((f) => {
   }
 })
 if (!apiErrors) ok('все THREE.* из src/ есть в бандле (' + exported.size + ' имен)')
-ok('если добавил НОВЫЙ метод three (color.mix!) — проверь, что он есть в бандле')
+
+// ── 4. вызовы методов объектов three ─────────────────────────
+// Тот самый случай с Color.mix(): класс есть, а метода нет — сцена падает
+// целиком. Смотрим все `.имя(` в src/ и требуем, чтобы имя было либо
+// методом бандла, либо нашим/браузерным (белый список ниже).
+console.log('\n[4/4] методы объектов (вызовы .имя())')
+const known = new Set([
+  // наши собственные объекты-фабрики (card.js, ui.js, tooltip.js, main.js)
+  'show', 'hide', 'update', 'setSpeed', 'setPaused', 'setGalaxyInfo', 'setSystemInfo',
+  'setSystemList', 'setCurrent', 'setPlanetChecked', 'setParamValues', 'dispose',
+  'setOrbitsVisible', 'getWorld', 'current', 'getNormal', 'getCenter',
+  // WebGLRenderer / OrbitControls (в бандле объявлены как `this.render = …`)
+  'render', 'setPixelRatio', 'setSize', 'getPixelRatio', 'getSize', 'update',
+  'getDistance', 'getAzimuthalAngle', 'getPolarAngle', 'setTarget', 'saveState', 'reset',
+  // canvas 2D и DOM
+  'getContext', 'fillRect', 'createImageData', 'putImageData', 'createRadialGradient',
+  'addColorStop', 'beginPath', 'save', 'restore', 'closest', 'getBoundingClientRect',
+  'addEventListener', 'removeEventListener', 'appendChild', 'createElement',
+  'querySelector', 'querySelectorAll', 'preventDefault', 'stopPropagation',
+  'requestAnimationFrame', 'classList', 'contains',
+  // стандартные объекты JS
+  'now', 'imul', 'isFinite', 'isArray', 'fromCharCode', 'toFixed', 'toString',
+  'padStart', 'trim', 'split', 'join', 'slice', 'splice', 'push', 'pop', 'map',
+  'filter', 'forEach', 'reduce', 'find', 'findIndex', 'some', 'every', 'includes',
+  'indexOf', 'sort', 'reverse', 'concat', 'startsWith', 'endsWith', 'match',
+  'replace', 'test', 'keys', 'values', 'entries', 'stringify', 'parse',
+  'get', 'has', 'toLocaleString',
+  'abs', 'min', 'max', 'floor', 'ceil', 'round', 'sqrt', 'pow', 'random', 'sign',
+  'sin', 'cos', 'tan', 'atan2', 'hypot', 'exp', 'log'
+])
+
+let methodErrors = 0
+const reCall = /\.([A-Za-z_$][\w$]*)\s*\(/g
+srcFiles.forEach((f) => {
+  const code = read('src/' + f)
+  const seen = new Set()
+  let m
+  while ((m = reCall.exec(code))) {
+    const name = m[1]
+    if (seen.has(name)) continue
+    seen.add(name)
+    if (methods.has(name) || known.has(name) || exported.has(name)) continue
+    methodErrors++
+    fail('src/' + f + ': нет метода .' + name + '() ни в three, ни в наших объектах')
+  }
+})
+if (!methodErrors) ok('все вызовы .метод() известны (' + known.size + ' своих/браузерных в белом списке)')
 
 // ── Итог ─────────────────────────────────────────────────────
 console.log('')

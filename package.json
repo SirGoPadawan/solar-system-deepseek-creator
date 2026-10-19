@@ -11,7 +11,9 @@
     "start": "node server.js",
     "dev": "node server.js",
     "check": "node tools/check.cjs",
-    "test": "node tools/check.cjs"
+    "test:galaxy": "node tools/galaxy.test.cjs",
+    "test:systems": "node tools/systems.test.cjs",
+    "test": "node tools/check.cjs && node tools/galaxy.test.cjs && node tools/systems.test.cjs"
   },
   "keywords": [],
   "author": "",
