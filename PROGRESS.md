@@ -198,8 +198,19 @@ npm start
 const ORBIT_TILT = 0.05
 const SHADOW_MAP_SIZE = 1024
 const STAR_COUNT = 3500
-const STAR_SPREAD = 500
-const PLANETS = [ { type, radius, distance, orbitSpeed, spinSpeed }, ... ]
+const PLANETS = [
+  { type, radius, distance, orbitSpeed, spinSpeed,
+    axialTilt, atmosphere: { color, intensity },
+    moons:      [{ name, radius, distance, orbitSpeed, color }],
+    artificial: [{ name, distance, orbitSpeed, inclination }] },
+  ...
+]
+```
+
+### Пояса малых тел (секция 5.7)
+```js
+asteroidBelt = makeBelt({ count: 700, inner: 16.0, outer: 18.6, ySpread, scaleMin/Max, speedMin/Max, color })
+kuiperBelt   = makeBelt({ count: 500, inner: 37,   outer: 45,   ... })
 ```
 
 ### Полёт сквозь космос и следы (верх `index.js` + секция 5.5)
@@ -232,11 +243,14 @@ const trailColors = { sun, mercury, venus, earth, mars, jupiter, saturn }
   Если снова начнёшь двигать `world`, следы нужно пересчитывать с учётом его матрицы.
 - Скорость/выдержка следов настраиваются `MOTION_SPEED`, `TRAIL_TIME` (больше = длиннее спираль).
 - Туманность (`nebula`) статична (сфера-скайбокс нельзя двигать — станут видны края).
-- Стоимость генерации текстур на старте ~1.1 c (синхронно). Можно сделать ленивую/прогрессивную генерацию.
-- Кольца Сатурна — простая полупрозрачная заготовка, можно улучшить (текстура-щели, тени).
+- Стоимость генерации текстур на старте ~1.5 c (синхронно, теперь 9 типов планет).
+- Кольца Сатурна сделаны из полос (`createSaturnRings`); можно ещё добавить тень колец на планету.
+- Спутники/аппараты — стилизованные (пропорции не физические), важна читаемость в кадре.
+- Пояса (1200 тел) обновляют матрицы каждый кадр — при желании можно вынести на `instanceMatrix` с GPU-анимацией.
 
 ## Идеи на потом
 - Постобработка (`postprocessing` уже в зависимостях): bloom для Солнца и ярких краёв.
-- Атмосферное свечение (fresnel-бамп) для Земли/газовых гигантов.
-- Наклоны осей планет и разное вращение.
-- UI/оверлей с подписями планет.
+- UI/оверлей с подписями планет/спутников (переключатели).
+- Наведение мышью (raycast) — подсказки о телах.
+- Тень колец Сатурна на планету.
+- Кометы с хвостами, резонансы в поясах.
