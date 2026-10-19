@@ -12,16 +12,29 @@
 
 ## Файлы проекта
 
-- `index.html` — точка входа, importmap указывает на **`vendor/three/`** (не на `node_modules`).
-- `index.js` — вся сцена. **Основной файл, который мы дорабатываем.**
+- `index.html` — точка входа, importmap указывает на **`vendor/three/`** (не на `node_modules`);
+  здесь же стили UI (`.hud`, `.panel`, `.hint`).
+- `index.js` — **тонкая точка входа**: `import './src/main.js'`. Вся логика вынесена в `src/`.
+- `src/config.js` — все настройки: планеты (с именами/спутниками/аппаратами), пояса, кометы,
+  Тесла, шаги скорости UI, глобальные константы.
+- `src/noise.js` — математика шума (value-noise, fBm), палитры-градиенты, `paintPixels`.
+- `src/textures.js` — процедурные текстуры планет, туманность, маска-свечение.
+- `src/bodies.js` — планеты, спутники, аппараты, кольца, атмосферы, Солнце (корона), Тесла.
+- `src/belts.js` — пояса астероидов и Койпера (`InstancedMesh`).
+- `src/sky.js` — звёздное поле (стрим) и сфера-туманность.
+- `src/trails.js` — аналитические винтовые следы.
+- `src/comets.js` — кометы с хвостами и Tesla Roadster (Starman).
+- `src/ui.js` — интерфейс: кнопки скорости системы и меню параметров планеты.
+- `src/main.js` — сборка сцены, свет, игровой цикл, raycast-выбор планеты.
 - `server.js` — статический сервер без зависимостей (для `npm start`), ESM.
 - `vendor/three/` — закоммиченный three.js (`three.module.js`, `three.core.js`) + `addons/controls/OrbitControls.js`.
 - `.nojekyll` — пустой файл, отключает Jekyll на GitHub Pages.
 - `README.md` — инструкция по запуску/деплою + упоминание модели.
-- `index.js.bak` — резервная копия исходной версии (до всех правок).
 - `node_modules/` — локальные зависимости (в `.gitignore`, для разработки).
 - `PROGRESS.md` — этот файл.
 - `solar.jpg`, `2.png` — референсы внешнего вида.
+
+> Раньше вся сцена была в одном `index.js` (~1380 строк) — на Этапе 11 он разбит на модули `src/`.
 
 ## Как запускать
 
@@ -41,7 +54,7 @@ npm start
 
 Пакет `canvas` в этом окружении собран под Windows и не работает в WSL, поэтому
 текстуры проверяются «чистой математикой»: скрипт извлекает блок шейдеров из
-`index.js`, считает пиксели и пишет PNG встроенным `zlib`.
+`src/textures.js`, считает пиксели и пишет PNG встроенным `zlib`.
 
 - Скрипт: `/tmp/opencode/tex_test.js`
 - Запуск: `node /tmp/opencode/tex_test.js` (или `W=1024 H=512 node /tmp/opencode/tex_test.js`)
@@ -171,6 +184,48 @@ npm start
 - Камера отодвинута (`(0, 18, 42)`, `maxDistance 200`) — система выросла до пояса Койпера.
 - Проверено: `node --check index.js` — синтаксис OK.
 
+### Этап 11. Солнце, кометы, Тесла, туманность, UI и разбиение на модули
+Крупный проход: новые объекты + интерфейс + рефакторинг `index.js` на модули `src/`.
+
+**Солнце** `[FEATURE:SUN]`:
+- Тёмные **пятна на фотосфере** (`drawSunspots` — оверлей поверх текстуры).
+- Материал Солнца — `MeshBasicMaterial` с `toneMapped: false` (не «выцветает» от тонмаппинга).
+- **Корона** `createSunCorona` — шейдерная fresnel-оболочка (`radius*1.22`), «дышит» (`uTime`),
+  медленно проворачивается.
+- Два **ореола**-спрайта (`glow`, `glowOuter`), пульсируют по размеру. Всё крепится к `sunMesh`.
+
+**Кометы** `[FEATURE:COMETS]` — 3 штуки (`COMETS`):
+- Ядро (icosahedron) + кома (спрайт) + **хвост** линией с вершинными цветами.
+- Движение по эллипсу (Кеплер-подобно): у перигелия быстрее (`dnu ∝ a²/r²`, ограничено `0.15`).
+- Хвост всегда направлен **от Солнца** и растёт при сближении. Свою линию орбиты рисует `createEllipseOrbit`.
+
+**Tesla Roadster со Starman** `[FEATURE:TESLA]` — `buildTesla`:
+- Красный кузов, стеклянная кабина, 4 колеса, белая фигурка в шлеме, деликатное свечение.
+- Гелиоцентрическая орбита с эксцентриситетом (`a≈17.5, e≈0.32`), кувыркается в невесомости.
+
+**Туманность** `[FEATURE:NEBULA]` (переработка текстуры):
+- Палитра `NEBULA_HUE`: синий → бирюза → фиолет → маджента → тёплый.
+- Шейдер: **галактическая полоса** (изогнутая шумом), гребневые волокна, яркие ядра,
+  вкраплённые далёкие звёзды. Разрешение 1280×640. Медленно проворачивается в `animate()`.
+
+**Интерфейс** `[FEATURE:UI]` (`src/ui.js`, стили в `index.html`):
+- **Кнопки скорости системы** внизу: `−` / `⏸ пауза` / `+` / сброс + индикатор `×N`.
+  Шаги `SPEED_STEPS = [0.1, 0.25, 0.5, 1, 2, 3, 5, 8]`. Глобальный множитель `systemSpeed`
+  масштабирует орбиты, вращение, спутники, пояса, кометы, Теслу, стрим звёзд и следы.
+- **Клик по планете → меню параметров**: орбитальная скорость, вращение вокруг оси, размер,
+  кнопка «Сбросить планету». Выбранная планета подсвечивается (`emissive`).
+  Клик по пустому месту закрывает меню; перетаскивание камеры кликом не считается
+  (порог по смещению/времени).
+
+**Разбиение `index.js` на модули**:
+- `index.js` теперь только `import './src/main.js'`; логика в `src/` (см. «Файлы проекта»).
+- Имена планет добавлены в конфиг (`name`) — нужны меню.
+- Риг планеты (`createPlanet`) возвращает `{ config, mesh, orbitGroup, holder, moonRigs, satRigs }`,
+  поэтому UI меняет `config` «на лету», а игровой цикл читает актуальные значения.
+- Проверено: `node --check` по всем модулям; статическая сверка импортов/экспортов
+  (`/tmp/opencode/lc/checklink.cjs`) — «ALL LINKS OK»; наличие всех используемых API в
+  вендорном three r186 проверено grep'ом.
+
 ---
 
 ## Метки фич в коде
@@ -178,14 +233,20 @@ npm start
 Чтобы не терять контекст, крупные блоки помечены комментариями-маркерами вида
 `// ─── [FEATURE:XXX] начало/конец ───`. Список меток:
 
-| Метка | Что это | Где в `index.js` |
+| Метка | Что это | Где в коде (модуль) |
 |---|---|---|
-| `[FEATURE:PLANETS+]` | новые планеты Уран и Нептун + их текстуры | конфиг `PLANETS`, шейдеры |
-| `[FEATURE:MOONS]` | естественные спутники (Луна, галилеевы, Титан и т.д.) | конфиг `PLANETS`, `buildMoon` |
-| `[FEATURE:SATELLITES]` | искусственные аппараты (МКС, Hubble, Juno, Cassini, Voyager 2) | конфиг `PLANETS`, `buildSatellite` |
-| `[FEATURE:BELTS]` | пояс астероидов и пояс Койпера (InstancedMesh) | секция 5.7 |
-| `[FEATURE:RINGS]` | кольца Сатурна из нескольких полос | `createSaturnRings` |
-| `[FEATURE:ATMOSPHERE]` | fresnel-свечение атмосфер | `createAtmosphere` |
+| `[FEATURE:PLANETS+]` | новые планеты Уран и Нептун + их текстуры | `src/config.js`, `src/textures.js` |
+| `[FEATURE:MOONS]` | естественные спутники (Луна, галилеевы, Титан и т.д.) | `src/config.js`, `src/bodies.js` |
+| `[FEATURE:SATELLITES]` | искусственные аппараты (МКС, Hubble, Juno, Cassini, Voyager 2) | `src/config.js`, `src/bodies.js` |
+| `[FEATURE:BELTS]` | пояс астероидов и пояс Койпера (InstancedMesh) | `src/belts.js` |
+| `[FEATURE:RINGS]` | кольца Сатурна из нескольких полос | `src/bodies.js` |
+| `[FEATURE:ATMOSPHERE]` | fresnel-свечение атмосфер | `src/bodies.js` |
+| `[FEATURE:SUN]` | пятна на Солнце, корона, пульсирующие ореолы | `src/textures.js`, `src/bodies.js`, `src/main.js` |
+| `[FEATURE:COMETS]` | кометы с газовыми хвостами (от Солнца) | `src/comets.js`, `src/config.js` |
+| `[FEATURE:TESLA]` | Tesla Roadster со Starman на гелиоцентрической орбите | `src/comets.js`, `src/bodies.js` |
+| `[FEATURE:NEBULA]` | галактическая полоса + волокна + ядра (скайбокс) | `src/textures.js`, `src/sky.js` |
+| `[FEATURE:TRAILS]` | аналитические винтовые следы планет | `src/trails.js` |
+| `[FEATURE:UI]` | кнопки скорости системы + меню параметров планеты | `src/ui.js`, `index.html` |
 
 Маркеры ищите поиском по строке `[FEATURE:`
 
@@ -193,44 +254,48 @@ npm start
 
 ## Ключевые константы (где крутить)
 
-### Сцена / планеты (верх `index.js`)
+### Сцена / планеты (`src/config.js`)
 ```js
-const ORBIT_TILT = 0.05
-const SHADOW_MAP_SIZE = 1024
-const STAR_COUNT = 3500
-const PLANETS = [
-  { type, radius, distance, orbitSpeed, spinSpeed,
+export const ORBIT_TILT = 0.05
+export const SHADOW_MAP_SIZE = 1024
+export const STAR_COUNT = 3500
+export const PLANETS = [
+  { name, type, radius, distance, orbitSpeed, spinSpeed,
     axialTilt, atmosphere: { color, intensity },
     moons:      [{ name, radius, distance, orbitSpeed, color }],
     artificial: [{ name, distance, orbitSpeed, inclination }] },
   ...
 ]
+export const COMETS = [{ a, e, inc, speed, size, tail, nu }, ...]
+export const TESLA  = { a, e, inc, speed, nu, scale }
+export const SPEED_STEPS = [0.1, 0.25, 0.5, 1, 2, 3, 5, 8] // шаги кнопок скорости
 ```
 
-### Пояса малых тел (секция 5.7)
+### Пояса малых тел (`src/config.js`)
 ```js
-asteroidBelt = makeBelt({ count: 700, inner: 16.0, outer: 18.6, ySpread, scaleMin/Max, speedMin/Max, color })
-kuiperBelt   = makeBelt({ count: 500, inner: 37,   outer: 45,   ... })
+export const ASTEROID_BELT = { count: 700, inner: 16.0, outer: 18.6, ySpread, scaleMin/Max, speedMin/Max, color }
+export const KUIPER_BELT   = { count: 500, inner: 37,   outer: 45,   ... }
 ```
 
-### Полёт сквозь космос и следы (верх `index.js` + секция 5.5)
+### Полёт сквозь космос и следы (`src/config.js` + `src/trails.js`)
 ```js
-const STAR_BOX = 320                                    // полуразмер куба звёзд (период обёртки)
-const MOTION_DIR = new THREE.Vector3(0.9, 0.35, 0.25).normalize() // направление полёта
-const MOTION_SPEED = 5.5                                // скорость полёта, ед/сек
-const SYSTEM_TILT_X = 0.15                              // наклон системы вокруг X
-const SYSTEM_TILT_Z = 0.6                               // наклон системы вокруг Z
+export const STAR_BOX = 320                 // полуразмер куба звёзд (период обёртки)
+export const MOTION_SPEED = 5.5             // скорость полёта, ед/сек
+export const SYSTEM_TILT_X = 0.15           // наклон системы вокруг X
+export const SYSTEM_TILT_Z = 0.6            // наклон системы вокруг Z
 // MOTION_DIR = нормаль плоскости орбит после наклона (спирали ⟂ системе), производный
-const TRAIL_TIME = 16                                   // «выдержка» следа, сек (секция 5.5)
-const TRAIL_POINTS = 256                                // точек на след
-const trailColors = { sun, mercury, venus, earth, mars, jupiter, saturn }
+export const TRAIL_TIME = 16                // «выдержка» следа, сек
+export const TRAIL_POINTS = 256             // точек на след
+export const trailColors = { sun, mercury, venus, earth, mars, jupiter, saturn, uranus, neptune }
 ```
 
-### Текстуры (секция 3)
+### Текстуры (`src/textures.js`)
 - `textureSize(radius)` — разрешение текстуры.
-- Палитры: `SUN`, `MERCURY`, `VENUS`, `OCEAN`, `LAND`, `MARS`, `JUPITER_BANDS`, `SATURN_BANDS`, `NEBULA_HUE`.
+- Палитры: `SUN`, `MERCURY`, `VENUS`, `OCEAN`, `LAND`, `MARS`, `JUPITER_BANDS`, `SATURN_BANDS`,
+  `URANUS_BANDS`, `NEPTUNE_BANDS`, `NEBULA_HUE`.
 - Параметры шума задаются прямо в вызовах `fbm(u, v, octaves, baseFreq, seed)`.
 - Полосы газовых гигантов: `makeBandedShader(bands, { warpAmount, smoothLo, streakAmount, ... })`.
+- Оверлеи: `drawGreatRedSpot` (Юпитер), `drawSunspots` (Солнце).
 
 ---
 
@@ -242,15 +307,20 @@ const trailColors = { sun, mercury, venus, earth, mars, jupiter, saturn }
 - Следы строятся аналитически и предполагают, что группа `world` в начале координат.
   Если снова начнёшь двигать `world`, следы нужно пересчитывать с учётом его матрицы.
 - Скорость/выдержка следов настраиваются `MOTION_SPEED`, `TRAIL_TIME` (больше = длиннее спираль).
-- Туманность (`nebula`) статична (сфера-скайбокс нельзя двигать — станут видны края).
-- Стоимость генерации текстур на старте ~1.5 c (синхронно, теперь 9 типов планет).
+- Глобальный множитель скорости `systemSpeed` (кнопки UI) масштабирует и орбиты, и стрим звёзд,
+  и следы — чтобы иллюзия оставалась согласованной. На паузе следы не пересчитываются (не «схлопываются»).
+- Туманность — сфера-скайбокс: её можно **проворачивать** (медленный `nebula.rotation.y`), но нельзя
+  сдвигать/увеличивать (станут видны края или разъедется с камерой).
+- Стоимость генерации текстур на старте ~1.5 c (синхронно, 9 типов планет + туманность 1280×640).
 - Кольца Сатурна сделаны из полос (`createSaturnRings`); можно ещё добавить тень колец на планету.
 - Спутники/аппараты — стилизованные (пропорции не физические), важна читаемость в кадре.
 - Пояса (1200 тел) обновляют матрицы каждый кадр — при желании можно вынести на `instanceMatrix` с GPU-анимацией.
+- Меню планеты меняет `config.orbitSpeed/spinSpeed` и `mesh.scale`; размер масштабирует только саму сферу
+  (кольца/атмосфера/спутники не масштабируются).
 
 ## Идеи на потом
 - Постобработка (`postprocessing` уже в зависимостях): bloom для Солнца и ярких краёв.
-- UI/оверлей с подписями планет/спутников (переключатели).
-- Наведение мышью (raycast) — подсказки о телах.
+- Подписи/ярлыки тел поверх сцены (HTML-оверлей, привязанный к проекции).
+- Больше управления в меню планеты (наклон оси, цвет, видимость поясов/подписей).
 - Тень колец Сатурна на планету.
-- Кометы с хвостами, резонансы в поясах.
+- Сохранение пользовательских настроек (localStorage) и пресеты «реализм / зрелищность».
