@@ -3,117 +3,245 @@ import { GALAXY } from './config.js'
 import { starTexture, glowTexture } from './textures.js'
 
 // ─────────────────────────────────────────────────────────────
-// ─── [FEATURE:GALAXY] процедурная спиральная галактика (фон) ───
-// Фон вокруг Солнечной системы: десятки тысяч точек-звёзд в рукавах.
-// Генерация — отдельная «чистая» функция `generateGalaxyPoints` (только
-// математика, никаких THREE-объектов), а `createGalaxy` уже собирает
-// из неё THREE.Points. Вся геометрия — один BufferGeometry, рисуется
-// одним вызовом, поэтому даже 100k звёзд ничего не стоят.
+// ─── [FEATURE:GALAXY] спиральная галактика «Млечный Путь» ───
 //
-// Галактику можно пересоздавать: `randomGalaxyConfig()` даёт случайную
-// (рукава/закрутка/цвета), `dispose()` освобождает ресурсы прошлой.
+// Генерация — отдельная «чистая» функция `generateGalaxyPoints`
+// (только математика и массивы, никаких THREE-объектов).
+// `createGalaxy` собирает из неё THREE.Points (+ слой пыли + свечение ядра).
+//
+// Что воспроизводим у Млечного Пути:
+//   • **мы внутри диска**, а не в ядре — галактика смещена так, чтобы
+//     Солнечная система лежала в плоскости диска (см. `distance`);
+//   • центральный **бар + балдж** (Млечный Путь — с баром);
+//   • **2 главных рукава + 2 второстепенных** (разные вес и ширина);
+//   • **голубые горячие звёзды и розовые области HII** кучками в рукавах;
+//   • **тёмные пылевые полосы** по внутреннему краю рукавов.
+//
+// Вся геометрия — один BufferGeometry, рисуется одним вызовом, поэтому
+// даже 100k звёзд почти ничего не стоят.
 // ─────────────────────────────────────────────────────────────
 
-// Палитры: ядро → середина → концы рукавов
+// Палитры: ядро → середина рукава → конец рукава → молодые звёзды → HII → балдж
 export const GALAXY_PRESETS = [
-  { name: 'Классика', coreColor: 0xfff1c9, midColor: 0x8fb4ff, armColor: 0x5b2bd6 },
-  { name: 'Ледяная', coreColor: 0xe8f4ff, midColor: 0x9fd8ff, armColor: 0x2b4fd6 },
-  { name: 'Розовая', coreColor: 0xffe3c8, midColor: 0xff9ad0, armColor: 0x9b2bd6 },
-  { name: 'Изумруд', coreColor: 0xf2fff8, midColor: 0x8fffd6, armColor: 0x1f9f7a },
-  { name: 'Уголёк', coreColor: 0xffd9a0, midColor: 0xff8a4a, armColor: 0xa02020 }
+  {
+    name: 'Млечный Путь',
+    coreColor: 0xffe0a0,
+    midColor: 0x9dc4ff,
+    armColor: 0x5a86ff,
+    youngColor: 0xeaf4ff,
+    hiiColor: 0xff5f9e,
+    bulgeColor: 0xffc072
+  },
+  {
+    name: 'Ледяная',
+    coreColor: 0xe8f2ff,
+    midColor: 0x9fd8ff,
+    armColor: 0x3f6fe0,
+    youngColor: 0xf4faff,
+    hiiColor: 0x7f9bff,
+    bulgeColor: 0xcfe4ff
+  },
+  {
+    name: 'Розовая',
+    coreColor: 0xffe3c8,
+    midColor: 0xff9ad0,
+    armColor: 0x9b2bd6,
+    youngColor: 0xffeaf6,
+    hiiColor: 0xff4f8f,
+    bulgeColor: 0xffb0d8
+  },
+  {
+    name: 'Изумруд',
+    coreColor: 0xf2fff8,
+    midColor: 0x8fffd6,
+    armColor: 0x1f9f7a,
+    youngColor: 0xeafff5,
+    hiiColor: 0xff6fd0,
+    bulgeColor: 0xa8ffe0
+  },
+  {
+    name: 'Уголёк',
+    coreColor: 0xffd9a0,
+    midColor: 0xff8a4a,
+    armColor: 0xa02020,
+    youngColor: 0xfff0d8,
+    hiiColor: 0xff3a2a,
+    bulgeColor: 0xffb060
+  }
 ]
 
 // Изолированная функция генерации звёздного скопления.
-// Принимает только числа/цвета, возвращает типизированные массивы.
+// Принимает только числа и цвета, возвращает типизированные массивы —
+// её можно вызывать и отдельно от THREE.
 //
-//   branches        — число рукавов
+//   branches        — число рукавов (чётные — главные, нечётные — второстепенные)
 //   radius          — внешний радиус диска
-//   innerRadius     — «дырка» в центре (чтобы рукава не лезли в планеты)
-//   spin            — коэффициент закручивания (сколько оборотов делает рукав)
+//   innerRadius     — где начинаются рукава
+//   spin            — закручивание (сколько оборотов делает рукав от центра к краю)
 //   randomness      — разброс поперёк рукава (доля радиуса)
 //   randomnessPower — насколько плотно звёзды жмутся к оси рукава
 //   thickness       — толщина диска (доля радиуса)
+//   bulgeShare      — доля звёзд в балдже/баре
+//   youngShare      — доля горячих голубых звёзд (идут кучками по рукавам)
+//   hiiShare        — доля розовых областей звездообразования
+//   dustShare       — сколько точек пыли сгенерировать (отдельный массив)
 export const generateGalaxyPoints = (options = {}) => {
   const {
-    count = 60000,
+    count = 100000,
     branches = 4,
-    radius = 420,
-    innerRadius = 70,
-    spin = 1.15,
-    randomness = 0.26,
+    radius = 620,
+    innerRadius = 10,
+    spin = 0.95,
+    randomness = 0.24,
     randomnessPower = 2.2,
-    thickness = 0.045,
-    coreColor = 0xfff1c9,
-    midColor = 0x8fb4ff,
-    armColor = 0x5b2bd6
+    thickness = 0.028,
+    bulgeShare = 0.16,
+    barLength = 0.22,
+    barWidth = 0.09,
+    bulgeHeight = 0.05,
+    youngShare = 0.08,
+    hiiShare = 0.02,
+    dustShare = 0.16,
+    coreColor = 0xffe0a0,
+    midColor = 0x9dc4ff,
+    armColor = 0x5a86ff,
+    youngColor = 0xeaf4ff,
+    hiiColor = 0xff5f9e,
+    bulgeColor = 0xffc072
   } = options
 
   const positions = new Float32Array(count * 3)
   const colors = new Float32Array(count * 3)
+  const dustCount = Math.max(0, Math.round(count * dustShare))
+  const dustPositions = new Float32Array(dustCount * 3)
 
   const cCore = new THREE.Color(coreColor)
   const cMid = new THREE.Color(midColor)
   const cArm = new THREE.Color(armColor)
+  const cYoung = new THREE.Color(youngColor)
+  const cHii = new THREE.Color(hiiColor)
+  const cBulge = new THREE.Color(bulgeColor)
   const color = new THREE.Color()
 
   const span = Math.max(1e-6, radius - innerRadius)
+  const TWO_PI = Math.PI * 2
+
+  // Азимут точки рукава: угол самого рукава + закрутка, пропорциональная радиусу
+  const armAngle = (b, r) => (b / branches) * TWO_PI + (r / radius) * spin * TWO_PI
+
+  // Веса рукавов: чётные — главные (2 ярких рукава Млечного Пути),
+  // нечётные — второстепенные: звездá в них и реже, и ближе к оси рукава
+  const weights = []
+  for (let b = 0; b < branches; b++) weights.push(b % 2 === 0 ? 1.55 : 0.55)
+  const weightTotal = weights.reduce((s, w) => s + w, 0)
+  const pickBranch = () => {
+    let x = Math.random() * weightTotal
+    for (let b = 0; b < branches; b++) {
+      x -= weights[b]
+      if (x <= 0) return b
+    }
+    return branches - 1
+  }
+  const isMajor = (b) => b % 2 === 0
+
+  // Гнёзда звездообразования: молодые звёзды и HII рождаются не «ровным слоем»,
+  // а кучками в нескольких пятнах вдоль рукавов — так и выглядит Млечный Путь
+  const clumps = []
+  for (let c = 0; c < branches * 7; c++) {
+    clumps.push({
+      b: pickBranch(),
+      r: innerRadius + span * (0.14 + Math.random() * 0.82)
+    })
+  }
+  const pickClump = () => clumps[Math.floor(Math.random() * clumps.length)]
+
+  const nBulge = Math.round(count * bulgeShare)
+  const nYoung = Math.round(count * youngShare)
+  const nHii = Math.round(count * hiiShare)
 
   for (let i = 0; i < count; i++) {
     const i3 = i * 3
+    let brightness = 0.3 + Math.random() * 0.7
 
-    // Радиус звезды. Показатель > 1 сгущает звёзды к центру галактики,
-    // а к краю рукава они естественно расходятся и редеют.
-    const t = Math.pow(Math.random(), 1.7)
-    const r = innerRadius + span * t
-
-    // Угол рукава: (i % branches) распределяет звёзды по рукавам,
-    // spin закручивает рукав пропорционально радиусу.
-    const branchAngle = ((i % branches) / branches) * Math.PI * 2
-    const spinAngle = (r / radius) * spin * Math.PI * 2
-
-    // Случайное смещение поперёк и вдоль рукава. Степень `randomnessPower`
-    // делает так, что мелких смещений много, а крупных — мало (живой рукав).
-    const scatter = randomness * r
-    const rnd = () =>
-      Math.pow(Math.random(), randomnessPower) *
-      (Math.random() < 0.5 ? 1 : -1) *
-      scatter
-
-    const x = Math.cos(branchAngle + spinAngle) * r + rnd()
-    const z = Math.sin(branchAngle + spinAngle) * r + rnd()
-    // Толщина диска тоже растёт к краю — рукава «пухнут»
-    const y = (Math.random() - 0.5) * 2 * thickness * r
-
-    // Предохранитель: ни одна звезда не должна оказаться внутри Солнечной системы
-    let px = x
-    let pz = z
-    const rr = Math.sqrt(x * x + z * z)
-    if (rr < innerRadius && rr > 1e-6) {
-      const fix = innerRadius / rr
-      px *= fix
-      pz *= fix
+    if (i < nBulge) {
+      // ── БАЛДЖ + БАР: вытянутое ядро (у Млечного Пути есть центральный бар) ──
+      const rr = Math.pow(Math.random(), 1.8) // гуще к центру
+      const th = Math.random() * TWO_PI
+      const jitter = 0.015 * radius
+      positions[i3] = Math.cos(th) * barLength * radius * rr + (Math.random() - 0.5) * 2 * jitter
+      positions[i3 + 1] =
+        (Math.random() - 0.5) * 2 * bulgeHeight * radius * rr
+      positions[i3 + 2] = Math.sin(th) * barWidth * radius * rr + (Math.random() - 0.5) * 2 * jitter
+      color.copy(cBulge)
+      brightness = 0.5 + 0.9 * (1 - rr) // ядро горит ярче
+    } else if (i < nBulge + nYoung + nHii) {
+      // ── МОЛОДЫЕ ЗВЁЗДЫ И ОБЛАСТИ HII: кучками по гребням рукавов ──
+      const isHii = i >= nBulge + nYoung
+      const cl = pickClump()
+      const r = cl.r * (1 + (Math.random() - 0.5) * 0.22)
+      const ang = armAngle(cl.b, r) + (Math.random() - 0.5) * 0.2
+      const sc = randomness * r * (isHii ? 0.14 : 0.22)
+      const rnd = () =>
+        Math.pow(Math.random(), 3) * (Math.random() < 0.5 ? 1 : -1) * sc
+      positions[i3] = Math.cos(ang) * r + rnd()
+      positions[i3 + 1] = (Math.random() - 0.5) * 2 * thickness * 0.5 * r
+      positions[i3 + 2] = Math.sin(ang) * r + rnd()
+      color.copy(isHii ? cHii : cYoung)
+      // HII — туманности, они светятся ровнее и ярче звёзд
+      brightness = isHii ? 0.55 + Math.random() * 0.45 : 0.75 + Math.random() * 0.5
+    } else {
+      // ── ОСНОВНОЕ НАСЕЛЕНИЕ РУКАВОВ ──
+      const b = pickBranch()
+      const t = Math.pow(Math.random(), 1.5)
+      const r = innerRadius + span * t
+      const ang = armAngle(b, r)
+      const sc = randomness * r * (isMajor(b) ? 1 : 0.62)
+      const rnd = () =>
+        Math.pow(Math.random(), randomnessPower) * (Math.random() < 0.5 ? 1 : -1) * sc
+      positions[i3] = Math.cos(ang) * r + rnd()
+      positions[i3 + 1] = (Math.random() - 0.5) * 2 * thickness * r
+      positions[i3 + 2] = Math.sin(ang) * r + rnd()
+      // Цвет: тёплое ядро → голубая середина → синий конец рукава.
+      // ВАЖНО: в three r186 у Color нет `mix()`, ровно тот же смысл даёт `lerp()`
+      const k = Math.pow(t, 0.75)
+      if (k < 0.5) color.copy(cCore).lerp(cMid, k * 2)
+      else color.copy(cMid).lerp(cArm, (k - 0.5) * 2)
     }
 
-    positions[i3] = px
-    positions[i3 + 1] = y
-    positions[i3 + 2] = pz
-
-    // ─── Интерполяция цвета: ядро (ярко-белое/жёлтое) → середина (голубая) →
-    //     концы рукавов (глубокий синий/фиолетовый).
-    //     ВАЖНО: в three r186 у Color нет `mix()`, ровно тот же смысл даёт `lerp()`
-    //     (`mix(color, a)` === `lerp(color, a)`), поэтому используем его. ───
-    const k = Math.pow(t, 0.8)
-    if (k < 0.5) color.copy(cCore).lerp(cMid, k * 2)
-    else color.copy(cMid).lerp(cArm, (k - 0.5) * 2)
-
-    // Каждая звезда чуть своего оттенка/яркости — скопление выглядит живым
-    const brightness = 0.35 + Math.random() * 0.65
     colors[i3] = color.r * brightness
     colors[i3 + 1] = color.g * brightness
     colors[i3 + 2] = color.b * brightness
   }
 
-  return { positions, colors }
+  // ── ПЫЛЕВЫЕ ПОЛОСЫ: тёмные точки по ВНУТРЕННЕМУ краю рукавов
+  //    (смещение против направления закрутки) + немного пыли в баре.
+  //    Цвет не нужен — слой рисуется чёрным с обычным смешиванием и «гасит»
+  //    свечение галактики, давая характерные тёмные прожилки.
+  for (let i = 0; i < dustCount; i++) {
+    const i3 = i * 3
+    if (Math.random() < 0.25) {
+      // пыль вдоль бара
+      const rr = Math.pow(Math.random(), 1.6)
+      const th = Math.random() * TWO_PI
+      dustPositions[i3] = Math.cos(th) * barLength * radius * rr * 1.05
+      dustPositions[i3 + 1] = (Math.random() - 0.5) * 2 * bulgeHeight * radius * rr * 0.6
+      dustPositions[i3 + 2] = Math.sin(th) * barWidth * radius * rr * 0.5
+    } else {
+      const b = pickBranch()
+      const major = isMajor(b)
+      const t = Math.pow(Math.random(), 1.25)
+      const r = innerRadius + span * t
+      const ang = armAngle(b, r) - (major ? 0.1 : 0.07) // внутренний край рукава
+      const sc = randomness * 0.55 * r * (major ? 1 : 0.6)
+      const rnd = () =>
+        Math.pow(Math.random(), randomnessPower) * (Math.random() < 0.5 ? 1 : -1) * sc
+      dustPositions[i3] = Math.cos(ang) * r + rnd()
+      dustPositions[i3 + 1] = (Math.random() - 0.5) * 2 * thickness * 0.5 * r
+      dustPositions[i3 + 2] = Math.sin(ang) * r + rnd()
+    }
+  }
+
+  return { positions, colors, dustPositions }
 }
 
 // Случайная галактика: берём палитру и разбрасываем форму/закрутку.
@@ -123,15 +251,17 @@ export const randomGalaxyConfig = () => {
   return {
     ...GALAXY,
     ...palette,
-    branches: 2 + Math.floor(Math.random() * 6), // 2..7 рукавов
-    spin: r2(0.55 + Math.random() * 1.35), // 0.55..1.9 оборота
-    randomness: r2(0.16 + Math.random() * 0.22),
+    branches: 4, // держим 2 главных + 2 второстепенных, как у Млечного Пути
+    spin: r2(0.6 + Math.random() * 0.9),
+    randomness: r2(0.16 + Math.random() * 0.2),
     randomnessPower: r2(1.6 + Math.random() * 1.4),
-    radius: Math.round(260 + Math.random() * 260), // 260..520
-    thickness: r2(0.03 + Math.random() * 0.05),
-    tiltX: r2(0.7 + Math.random() * 0.7),
-    tiltZ: r2(Math.random() * 1.0),
-    coreScale: Math.round(80 + Math.random() * 40)
+    radius: Math.round(480 + Math.random() * 300),
+    thickness: r2(0.02 + Math.random() * 0.03),
+    youngShare: r2(0.05 + Math.random() * 0.07),
+    hiiShare: r2(0.01 + Math.random() * 0.03),
+    dustShare: r2(0.1 + Math.random() * 0.12),
+    tiltX: r2(0.25 + Math.random() * 0.5),
+    tiltZ: r2(Math.random() * 1.2)
   }
 }
 
@@ -143,24 +273,37 @@ export const createGalaxy = (options = GALAXY) => {
     branches,
     radius,
     innerRadius,
+    distance,
     spin,
     randomness,
     randomnessPower,
     thickness,
+    bulgeShare,
+    barLength,
+    barWidth,
+    bulgeHeight,
+    youngShare,
+    hiiShare,
+    dustShare,
     size,
     opacity,
     coreColor,
     midColor,
     armColor,
+    youngColor,
+    hiiColor,
+    bulgeColor,
     tiltX,
     tiltZ,
     coreGlow,
     coreScale,
     coreOpacity,
-    rotationSpeed
+    rotationSpeed,
+    dustSize,
+    dustOpacity
   } = options
 
-  const { positions, colors } = generateGalaxyPoints({
+  const { positions, colors, dustPositions } = generateGalaxyPoints({
     count,
     branches,
     radius,
@@ -169,11 +312,22 @@ export const createGalaxy = (options = GALAXY) => {
     randomness,
     randomnessPower,
     thickness,
+    bulgeShare,
+    barLength,
+    barWidth,
+    bulgeHeight,
+    youngShare,
+    hiiShare,
+    dustShare,
     coreColor,
     midColor,
-    armColor
+    armColor,
+    youngColor,
+    hiiColor,
+    bulgeColor
   })
 
+  // ── звёзды диска ──
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
@@ -197,19 +351,50 @@ export const createGalaxy = (options = GALAXY) => {
   points.frustumCulled = false // галактика огромная — пусть рисуется всегда
   points.renderOrder = -0.6 // после туманности (-1), до свечения фона и звёзд
 
-  // Наклоняем диск целиком: вращение живёт на `points` (вокруг нормали диска),
-  // а наклон — на группе, поэтому структура рукавов не деформируется.
+  // ── слой пыли: чёрные точки с обычным смешиванием гасят свечение рукавов ──
+  const dustGeometry = new THREE.BufferGeometry()
+  dustGeometry.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3))
+  const dustMaterial = new THREE.PointsMaterial({
+    size: dustSize,
+    map: glowTexture, // мягкое пятно, а не резкая точка
+    color: 0x000000,
+    transparent: true,
+    opacity: dustOpacity,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+    sizeAttenuation: false,
+    fog: false,
+    toneMapped: false
+  })
+  const dust = new THREE.Points(dustGeometry, dustMaterial)
+  dust.frustumCulled = false
+  dust.renderOrder = -0.55 // строго ПОСЛЕ звёзд галактики, иначе не «погасит» их
+  points.add(dust) // внутри диска: вращается вместе со звёздами
+
+  // ── ориентация диска ──
+  // Вращение живёт на `points` (вокруг нормали диска), наклон — на группе.
+  // Центр галактики смещаем так, чтобы мировая точка (0,0,0) — Солнечная
+  // система — лежала В ПЛОСКОСТИ диска. Тогда мы «внутри» Млечного Пути:
+  // вокруг системы нет дырки, а сама галактика читается полосой в небе.
   const group = new THREE.Group()
   group.rotation.set(tiltX, 0, tiltZ)
+
+  const normal = new THREE.Vector3(0, 1, 0).applyEuler(group.rotation).normalize()
+  const back = new THREE.Vector3(0, 0, -1)
+  const inPlane = back.clone().addScaledVector(normal, -back.dot(normal))
+  if (inPlane.lengthSq() < 1e-6) inPlane.set(1, 0, 0).applyEuler(group.rotation)
+  inPlane.normalize()
+  group.position.copy(inPlane).multiplyScalar(distance || 0)
+
   group.add(points)
 
-  // ─── мягкое свечение в центре галактики ───
+  // ── мягкое свечение ядра ──
   let core = null
   if (coreGlow) {
     core = new THREE.Sprite(
       new THREE.SpriteMaterial({
         map: glowTexture, // общая текстура — её НЕ диспозим
-        color: coreColor,
+        color: bulgeColor,
         transparent: true,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
@@ -219,29 +404,47 @@ export const createGalaxy = (options = GALAXY) => {
       })
     )
     core.scale.setScalar(coreScale)
-    core.renderOrder = -0.55
-    group.add(core)
+    core.renderOrder = -0.5
+    group.add(core) // в центре галактики (центр = начало координат группы)
   }
 
-  // Медленное вращение галактики (по умолчанию ~0.06 рад/сек ≈ 0.001 за кадр).
+  // Медленное вращение диска (вместе со звёздами, пылью и системами-детьми)
   const update = (delta, motionScale = 1) => {
     points.rotation.y += rotationSpeed * delta * motionScale
   }
 
-  // Нормаль диска — нужна, чтобы поставить камеру «в плане» (посмотреть галактику)
+  // Нормаль диска — нужна, чтобы поставить камеру «в плане» (см. main.js)
   const getNormal = (out = new THREE.Vector3()) =>
     out.set(0, 1, 0).applyEuler(group.rotation).normalize()
 
-  // Строка для панели управления
-  const info = `${name} · рукавов: ${branches} · закрутка: ${spin.toFixed(2)} · звёзд: ${count.toLocaleString('ru-RU')}`
+  // Центр галактики в мировых координатах
+  const getCenter = (out = new THREE.Vector3()) => out.copy(group.position)
+
+  // Дистанция камеры, с которой видно диск целиком
+  const viewDistance = radius * 2.3
+
+  const info = `${name} · ${branches} рукава · звёзд: ${count.toLocaleString('ru-RU')}`
 
   // Освобождение ресурсов при генерации новой галактики
   const dispose = () => {
     geometry.dispose()
     material.dispose()
+    dustGeometry.dispose()
+    dustMaterial.dispose()
     if (core) core.material.dispose()
     if (group.parent) group.parent.remove(group)
   }
 
-  return { group, points, core, update, getNormal, info, dispose }
+  return {
+    group,
+    points,
+    dust,
+    core,
+    update,
+    getNormal,
+    getCenter,
+    viewDistance,
+    info,
+    dispose
+  }
 }

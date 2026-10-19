@@ -3,17 +3,19 @@
 // Чистый DOM, без THREE. Стили — в styles.css.
 // Здесь только глобальные настройки: скорость системы, тумблеры
 // движения/объектов, список планет (показать/скрыть, выбрать)
-// и блок галактики (фон, «другая галактика», вид снаружи).
+// и блоки галактики/навигации ([FEATURE:GALAXY], [FEATURE:SYSTEMS]).
 // Параметры конкретной планеты живут в карточке над планетой (card.js).
 // ─────────────────────────────────────────────────────────────
 
 export const createControls = ({
   planets,
+  systems = [],
   onSpeed = () => {},
   onToggle = () => {},
   onPlanetVisible = () => {},
   onPlanetSelect = () => {},
-  onView = () => {}
+  onView = () => {},
+  onNavigate = () => {}
 }) => {
   const root = document.createElement('div')
   root.className = 'controls'
@@ -55,14 +57,19 @@ export const createControls = ({
       </div>
 
       <div class="ctl-block">
-        <div class="ctl-title">Галактика <span class="ctl-note">(фон)</span></div>
-        <label class="chk"><input type="checkbox" data-toggle="galaxy" checked> Показывать</label>
-        <div class="gal-info" data-role="galInfo">…</div>
+        <div class="ctl-title">Навигация <span class="ctl-note">(куда летим)</span></div>
+        <select class="sys-select" data-role="sysSelect" title="Выбрать систему"></select>
+        <div class="gal-info" data-role="sysInfo">…</div>
         <div class="gal-row">
-          <button data-act="galRandom" title="Сгенерировать другую галактику">🎲 Другая</button>
-          <button data-act="galView" title="Отлететь и посмотреть галактику целиком">🌀 Вид</button>
-          <button data-act="sysView" title="Вернуться к Солнечной системе">🪐 Система</button>
+          <button data-act="galRandom" title="Сгенерировать другую галактику">🎲 Другая галактика</button>
+          <button data-act="galView" title="Отлететь и посмотреть галактику целиком">🌀 Вид галактики</button>
         </div>
+      </div>
+
+      <div class="ctl-block">
+        <div class="ctl-title">Галактика</div>
+        <label class="chk"><input type="checkbox" data-toggle="galaxy" checked> Показывать галактику</label>
+        <div class="gal-info" data-role="galInfo">…</div>
       </div>
 
       <div class="ctl-block">
@@ -70,10 +77,20 @@ export const createControls = ({
         <div class="planet-list" data-role="planetList"></div>
       </div>
 
-      <div class="ctl-hint">ЛКМ — вращать · колесо — зум · наведение — данные · клик по планете — карточка</div>
+      <div class="ctl-hint">ЛКМ — вращать · колесо — зум · отлетел далеко — вернулся в галактику · клик по звезде системы — влететь в неё</div>
     </div>
   `
   document.body.appendChild(root)
+
+  // Плавающая кнопка «выйти из системы» — видна, только когда мы внутри
+  // чужой системы (см. [FEATURE:SYSTEMS]). Живёт отдельно от панели,
+  // чтобы её нельзя было потерять, свернув панель.
+  const exitBtn = document.createElement('button')
+  exitBtn.className = 'sys-exit hidden'
+  exitBtn.dataset.act = 'exitSystem'
+  exitBtn.textContent = '⬅ Выйти в галактику'
+  exitBtn.title = 'Вернуться к обзору галактики (Esc)'
+  document.body.appendChild(exitBtn)
 
   const q = (sel) => root.querySelector(sel)
 
@@ -91,6 +108,20 @@ export const createControls = ({
   const speedEl = q('[data-role="speed"]')
   const pauseBtn = q('[data-act="pause"]')
   const galInfoEl = q('[data-role="galInfo"]')
+  const sysSelect = q('[data-role="sysSelect"]')
+  const sysInfoEl = q('[data-role="sysInfo"]')
+
+  // ── Список систем: «Обзор галактики» + Солнечная + сгенерированные ──
+  const fillSystems = (entries) => {
+    sysSelect.innerHTML = ''
+    entries.forEach((e) => {
+      const option = document.createElement('option')
+      option.value = e.value
+      option.textContent = e.label
+      sysSelect.appendChild(option)
+    })
+  }
+  fillSystems(systems)
 
   // ── События ──
   root.addEventListener('click', (e) => {
@@ -102,12 +133,15 @@ export const createControls = ({
       }
       if (el.dataset.act) {
         const act = el.dataset.act
-        if (act === 'galRandom' || act === 'galView' || act === 'sysView') return onView(act)
+        if (act === 'galRandom' || act === 'galView') return onView(act)
         return onSpeed(act)
       }
       if (el.dataset.select !== undefined) return onPlanetSelect(Number(el.dataset.select))
     }
   })
+
+  exitBtn.addEventListener('click', () => onNavigate('galaxy'))
+  sysSelect.addEventListener('change', () => onNavigate(sysSelect.value))
 
   root.addEventListener('change', (e) => {
     const el = e.target
@@ -128,6 +162,15 @@ export const createControls = ({
     },
     setGalaxyInfo: (text) => {
       galInfoEl.textContent = text
+    },
+    setSystemInfo: (text) => {
+      sysInfoEl.textContent = text
+    },
+    setSystemList: (entries) => fillSystems(entries),
+    // Текущий пункт списка + видимость плавающей кнопки выхода
+    setCurrent: (value) => {
+      sysSelect.value = value
+      exitBtn.classList.toggle('hidden', value === 'galaxy' || value === '0')
     },
     setPlanetChecked: (index, value) => {
       const box = root.querySelector(`input[data-planet="${index}"]`)

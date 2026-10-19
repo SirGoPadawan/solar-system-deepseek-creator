@@ -4,8 +4,10 @@ import { PLANET_INFO } from './planetInfo.js'
 // ─────────────────────────────────────────────────────────────
 // ─── [FEATURE:HOVER] футуристичная плашка при наведении ───
 // Наводишь мышь на планету — рядом с ней всплывает 2D-окно
-// с массой, температурой и составом атмосферы. Это отдельный слой
-// поверх 3D, он не мешает клику (pointer-events: none).
+// с массой, температурой и составом атмосферы.
+// С [FEATURE:SYSTEMS] та же плашка показывает и системы на карте
+// галактики: просто другой набор строк (см. `rows` ниже).
+// Это отдельный слой поверх 3D, он не мешает клику (pointer-events: none).
 // ─────────────────────────────────────────────────────────────
 
 const clamp = (v, min, max) => Math.min(Math.max(v, min), max)
@@ -15,55 +17,79 @@ export const createHoverTooltip = () => {
   root.className = 'hover-tip hidden'
   root.innerHTML = `
     <div class="ht-head">
-      <span class="ht-dot"></span>
+      <span class="ht-dot" data-role="dot"></span>
       <span class="ht-name" data-role="name"></span>
     </div>
-    <div class="ht-grid">
-      <span class="ht-k">Масса</span><b class="ht-v" data-role="mass"></b>
-      <span class="ht-k">Температура</span><b class="ht-v" data-role="temp"></b>
-      <span class="ht-k">Атмосфера</span><b class="ht-v" data-role="atmo"></b>
-    </div>
+    <div class="ht-grid" data-role="grid"></div>
   `
   document.body.appendChild(root)
 
   const els = {
     name: root.querySelector('[data-role="name"]'),
-    mass: root.querySelector('[data-role="mass"]'),
-    temp: root.querySelector('[data-role="temp"]'),
-    atmo: root.querySelector('[data-role="atmo"]')
+    grid: root.querySelector('[data-role="grid"]'),
+    dot: root.querySelector('[data-role="dot"]')
   }
 
-  let rig = null
+  let target = null
   const anchor = new THREE.Vector3()
   const scratch = new THREE.Vector3()
 
+  // Строки вида [[подпись, значение], ...] — ровно три, как в макете
+  const setRows = (rows) => {
+    els.grid.innerHTML = rows
+      .map(([k, v]) => `<span class="ht-k">${k}</span><b class="ht-v">${v}</b>`)
+      .join('')
+  }
+
   const hide = () => {
-    rig = null
+    target = null
     root.classList.add('hidden')
   }
 
-  const show = (target) => {
-    if (target === rig) return
-    if (!target) return hide()
-    rig = target
-    const info = PLANET_INFO[target.config.type]
-    const h = (info && info.hover) || { mass: '—', temp: '—', atmo: '—' }
-    els.name.textContent = target.config.name
-    els.mass.textContent = h.mass
-    els.temp.textContent = h.temp
-    els.atmo.textContent = h.atmo
+  // target — либо «риг» планеты (config + mesh), либо описание:
+  //   { name, dot, rows, world | getWorld }
+  const show = (next) => {
+    if (!next || next === target) return
+    if (!next) return hide()
+    target = next
+
+    if (next.rows) {
+      els.name.textContent = next.name
+      setRows(next.rows)
+      els.dot.style.background = next.dot || '#8fd0ff'
+      els.dot.style.boxShadow = `0 0 10px ${next.dot || '#8fd0ff'}`
+    } else {
+      const info = PLANET_INFO[next.config.type]
+      const h = (info && info.hover) || { mass: '—', temp: '—', atmo: '—' }
+      els.name.textContent = next.config.name
+      setRows([
+        ['Масса', h.mass],
+        ['Температура', h.temp],
+        ['Атмосфера', h.atmo]
+      ])
+      els.dot.style.background = ''
+      els.dot.style.boxShadow = ''
+    }
+
     root.classList.remove('hidden')
   }
 
-  // Плашка висит рядом с планетой (чуть в стороне от центра)
+  // Откуда брать якорь в мировых координатах
+  const anchorOf = (out) => {
+    if (target.getWorld) return target.getWorld(out)
+    if (target.world) return out.copy(target.world)
+    target.mesh.updateWorldMatrix(true, false)
+    return target.mesh.getWorldPosition(out)
+  }
+
+  // Плашка висит рядом с объектом (чуть в стороне от центра)
   const update = (camera, renderer) => {
-    if (!rig) return
+    if (!target) return
     const rect = renderer.domElement.getBoundingClientRect()
     const vw = rect.width || window.innerWidth
     const vh = rect.height || window.innerHeight
 
-    rig.mesh.updateWorldMatrix(true, false)
-    rig.mesh.getWorldPosition(scratch)
+    anchorOf(scratch)
     scratch.project(camera)
     if (scratch.z > 1) return hide()
 
@@ -78,5 +104,5 @@ export const createHoverTooltip = () => {
     root.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`
   }
 
-  return { root, show, hide, update, current: () => rig }
+  return { root, show, hide, update, current: () => target }
 }

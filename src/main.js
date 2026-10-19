@@ -10,12 +10,15 @@ import {
   ASTEROID_BELT,
   KUIPER_BELT,
   SPEED_STEPS,
-  DEFAULT_SPEED_INDEX
+  DEFAULT_SPEED_INDEX,
+  GALAXY
 } from './config.js'
 import { createPlanet, createSunEffects } from './bodies.js'
 import { createStarfield, createNebula, createSpaceGlow, createSpaceFog } from './sky.js'
 import { createEclipticGrid } from './grid.js'
 import { createGalaxy, randomGalaxyConfig } from './galaxy.js'
+import { createStarSystems, generateSystemSpecs } from './systems.js'
+import { glowTexture } from './textures.js'
 import { meanMotion, orbitLocal } from './orbit.js'
 import { makeBelt, updateBelt } from './belts.js'
 import { createComets, createStarman } from './comets.js'
@@ -75,22 +78,57 @@ controls.maxDistance = 1600 // можно отлететь и рассмотре
 controls.maxPolarAngle = Math.PI / 2.05
 
 // 2. Небо: звёзды + туманность + лёгкое свечение фона
+// Всё небо лежит в одной группе, которую каждый кадр «возим» за камерой:
+// так туманность и звёзды видны из любой точки галактики, а сферический
+// скайбокс никогда не превращается в «стенку» (снаружи он выглядел бы
+// именно ей — раньше такие сферы приходилось просто прятать).
 const starfield = createStarfield()
-scene.add(starfield.points)
-
 const nebula = createNebula()
-scene.add(nebula)
+const spaceGlow = createSpaceGlow()
+
+const skyRoot = new THREE.Group()
+skyRoot.add(starfield.points, nebula, spaceGlow)
+scene.add(skyRoot)
 
 // ─── [FEATURE:DUST] объёмный туман космоса ───
 const spaceFog = createSpaceFog()
 scene.fog = spaceFog
 
-const spaceGlow = createSpaceGlow()
-scene.add(spaceGlow)
-
-// ─── [FEATURE:GALAXY] фоновая спиральная галактика вокруг системы ───
+// ─── [FEATURE:GALAXY] галактика «Млечный Путь»: мы внутри её диска ───
 let galaxy = createGalaxy()
 scene.add(galaxy.group)
+
+// ─── [FEATURE:SYSTEMS] другие звёздные системы в рукавах галактики ───
+// Живут детьми вращающегося диска (`galaxy.points`), поэтому едут вместе
+// с рукавами. Солнечная система — нулевая, «настоящая».
+let systems = null
+const buildSystems = () => {
+  galaxy.group.updateWorldMatrix(true, true)
+  // где Солнечная система в локальных координатах галактики — чтобы не
+  // поставить чужую систему прямо на Солнце
+  const homeLocal = galaxy.points.worldToLocal(new THREE.Vector3(0, 0, 0))
+  systems = createStarSystems(galaxy.points, generateSystemSpecs({ homeLocal }))
+}
+buildSystems()
+
+// ─── [FEATURE:SYSTEMS] маркер «вы здесь»: мягкое пятно на месте Солнца,
+//     чтобы на карте галактики было видно, откуда мы стартовали.
+//     Показывается только издалека (внутри системы он не нужен).
+const homeMarker = new THREE.Sprite(
+  new THREE.SpriteMaterial({
+    map: glowTexture,
+    color: 0x9fd8ff,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    opacity: 0.85,
+    fog: false,
+    toneMapped: false
+  })
+)
+homeMarker.scale.setScalar(30)
+homeMarker.visible = false
+scene.add(homeMarker)
 
 // 3. Свет (намеренно приглушённый — больше «темноты» и контраста)
 const ambientLight = new THREE.AmbientLight(0x121522, 0.8)
@@ -106,6 +144,15 @@ world.add(sunLight)
 const rimLight = new THREE.DirectionalLight(0x5566ff, 0.4)
 rimLight.position.set(10, 20, 10)
 world.add(rimLight)
+
+// ─── [FEATURE:SYSTEMS] «гостевой» свет: одна лампа, которая переезжает в ту
+//     систему, куда мы влетели. Держим её всегда видимой (иначе three будет
+//     заново компилировать все материалы) — когда не нужна, просто
+//     «паркуем» далеко за пределами своего радиуса освещения. ───
+const visitLight = new THREE.PointLight(0xfff3db, 30, 200)
+visitLight.decay = 1
+scene.add(visitLight)
+visitLight.position.set(1e5, 0, 0)
 
 // 4. Планеты (+ Солнце с короной), пояса, кометы и Тесла
 const planets = PLANETS.map((config) => createPlanet(world, config))
@@ -158,19 +205,17 @@ const options = {
 }
 const planetVisible = planets.map(() => true)
 
-// Когда камера отлетает наружу (смотрим галактику целиком), сферический
-// скайбокс изнутри уже не работает — прячем его, чтобы не торчали «стенки».
-let outsideView = false
+// Скайбокс теперь возится за камерой, поэтому «внутри/снаружи» больше не
+// различаем: небо видно везде. Плотность тумана постоянная.
 const FOG_DENSITY = spaceFog.density // «настоящая» плотность тумана (см. sky.js)
 
 const refreshVisibility = () => {
-  const sky = !outsideView
-  starfield.points.visible = options.stars && sky
-  nebula.visible = options.nebula && sky
-  spaceGlow.visible = options.dust && sky
+  starfield.points.visible = options.stars
+  nebula.visible = options.nebula
+  spaceGlow.visible = options.dust
   // Туман не выключаем (иначе пересборка всех материалов), а обнуляем плотность
   scene.fog = options.dust ? spaceFog : null
-  if (options.dust) spaceFog.density = sky ? FOG_DENSITY : 0
+  if (options.dust) spaceFog.density = FOG_DENSITY
   galaxy.group.visible = options.galaxy
   eclipticGrid.visible = options.grid
   asteroidBelt.inst.visible = options.belts
@@ -180,18 +225,13 @@ const refreshVisibility = () => {
   orbitLines.forEach((line) => {
     line.visible = options.orbits
   })
+  if (systems) systems.setOrbitsVisible(options.orbits)
   planets.forEach((rig, i) => {
     rig.orbitGroup.visible = planetVisible[i]
     trails.lines[i].visible = options.trails && planetVisible[i]
   })
 }
 refreshVisibility()
-
-const setOutsideView = (value) => {
-  if (value === outsideView) return
-  outsideView = value
-  refreshVisibility()
-}
 
 // 6. Интерфейс: панель слева вверху (глобальные настройки) + карточка планеты
 let selected = null
@@ -253,10 +293,84 @@ const flyTo = (pos, target, duration = 1.4) => {
   controls.enabled = false // во время полёта управление временно отдаём анимации
 }
 
-const viewSystem = () => flyTo(SYSTEM_CAM.pos, SYSTEM_CAM.target)
+// ─── [FEATURE:SYSTEMS] навигация: галактика ↔ системы ───
+// focus.index: 0 — Солнечная система, 1..N — сгенерированные, -1 — обзор галактики.
+let focus = { kind: 'system', index: 0 }
+// Галактика вращается, а мы «стоим» внутри системы: каждый кадр сдвигаем
+// камеру и цель на столько же, на сколько уехала звезда системы.
+let following = false
+const followPrev = new THREE.Vector3()
+const navScratch = new THREE.Vector3()
+const navScratch2 = new THREE.Vector3()
+
+// Мировая позиция звезды системы (0 — Солнце в начале координат)
+const systemWorldPos = (index, out = new THREE.Vector3()) => {
+  if (index <= 0) return out.set(0, 0, 0)
+  const rig = systems && systems.systems[index - 1]
+  if (!rig) return out.set(0, 0, 0)
+  rig.group.updateWorldMatrix(true, false)
+  return rig.group.getWorldPosition(out)
+}
+
+const sysRig = (index) => (systems && index > 0 ? systems.systems[index - 1] : null)
+
+// Пункты выпадающего списка: обзор галактики + все системы
+const systemEntries = () => {
+  const list = [
+    { value: 'galaxy', label: '🌀 Обзор галактики' },
+    { value: '0', label: '🪐 Солнечная система' }
+  ]
+  ;(systems ? systems.systems : []).forEach((s, i) =>
+    list.push({ value: String(i + 1), label: `★ ${s.spec.name}` })
+  )
+  return list
+}
+
+const describeSystem = (index) => {
+  if (index <= 0) return 'Солнечная система · наш дом'
+  const rig = sysRig(index)
+  if (!rig) return ''
+  return (
+    `${rig.spec.catalog} · ${rig.spec.starClass.name} · ` +
+    `планет: ${rig.spec.planets.length} · ESC — назад в галактику`
+  )
+}
+
+// Переезд «гостевого» света: в чужой системе он встаёт в её звезду,
+// иначе — паркуется далеко (и ничего не освещает)
+const attachVisitLight = (index) => {
+  if (index > 0) {
+    const rig = sysRig(index)
+    if (rig) {
+      rig.group.add(visitLight)
+      visitLight.position.set(0, 0, 0)
+      visitLight.color.setHex(rig.spec.starClass.color)
+      return
+    }
+  }
+  scene.add(visitLight)
+  visitLight.position.set(1e5, 0, 0)
+}
+
+// Провалиться в систему: летим к её звезде и дальше «едем» вместе с ней
+const enterSystem = (index) => {
+  focus = { kind: 'system', index }
+  following = false
+  attachVisitLight(index)
+  const pos = systemWorldPos(index, new THREE.Vector3())
+  if (index <= 0) {
+    flyTo(SYSTEM_CAM.pos, SYSTEM_CAM.target)
+  } else {
+    const ext = (sysRig(index) && sysRig(index).spec.extent) || 40
+    flyTo(pos.clone().add(new THREE.Vector3(0, ext * 0.45, ext * 1.5)), pos)
+  }
+  controlsUi.setCurrent(String(Math.max(0, index)))
+  controlsUi.setSystemInfo(describeSystem(index))
+}
 
 const viewGalaxy = () => {
   const n = galaxy.getNormal() // нормаль диска галактики
+  const center = galaxy.getCenter(new THREE.Vector3())
   // смотрим на диск «в три четверти» — чуть под углом к нормали
   const ref = Math.abs(n.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 0, 1)
   const side = ref.clone().cross(n).normalize()
@@ -267,17 +381,31 @@ const viewGalaxy = () => {
     n.y = 0.25
     n.normalize()
   }
-  flyTo(n.multiplyScalar(1250), new THREE.Vector3(0, 0, 0))
+  flyTo(center.clone().addScaledVector(n, galaxy.viewDistance), center)
+  focus = { kind: 'galaxy', index: -1 }
+  following = false
+  attachVisitLight(-1)
+  // у случайной галактики радиус больше — даём камере уехать подальше
+  controls.maxDistance = Math.max(1600, galaxy.viewDistance * 1.2)
+  controlsUi.setCurrent('galaxy')
+  controlsUi.setSystemInfo(galaxy.info)
 }
 
-// Пересоздать галактику — «другая галактика» (другая форма и палитра)
+// Пересоздать галактику — «другая галактика» (форма, палитра и её системы)
 const regenerateGalaxy = () => {
   const visible = galaxy.group.visible
+  if (systems) systems.dispose()
   galaxy.dispose()
   galaxy = createGalaxy(randomGalaxyConfig())
   galaxy.group.visible = visible
   scene.add(galaxy.group)
+  buildSystems()
+  refreshVisibility() // тумблеры (в т.ч. «Орбиты») применяем и к новым системам
+  hoveredSystem = -1
+  tooltip.hide()
   controlsUi.setGalaxyInfo(galaxy.info)
+  controlsUi.setSystemList(systemEntries())
+  viewGalaxy() // сразу показываем, что получилось
 }
 
 const select = (rig) => {
@@ -295,6 +423,7 @@ const select = (rig) => {
 
 const controlsUi = createControls({
   planets,
+  systems: systemEntries(),
   onSpeed: (act) => {
     if (act === 'faster') speedIndex = Math.min(SPEED_STEPS.length - 1, speedIndex + 1)
     else if (act === 'slower') speedIndex = Math.max(0, speedIndex - 1)
@@ -319,12 +448,23 @@ const controlsUi = createControls({
   onView: (act) => {
     if (act === 'galRandom') regenerateGalaxy()
     else if (act === 'galView') viewGalaxy()
-    else if (act === 'sysView') viewSystem()
+  },
+  // [FEATURE:SYSTEMS] выбор в списке: 'galaxy' или номер системы
+  onNavigate: (value) => {
+    if (value === 'galaxy') viewGalaxy()
+    else enterSystem(Number(value))
   }
 })
 controlsUi.setSpeed('×' + systemSpeed)
 controlsUi.setPaused(paused)
 controlsUi.setGalaxyInfo(galaxy.info)
+controlsUi.setSystemInfo(describeSystem(0))
+controlsUi.setCurrent('0') // стартуем внутри Солнечной системы
+
+// Esc — быстрый выход из системы в обзор галактики
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && focus.kind !== 'galaxy') viewGalaxy()
+})
 
 // 7. Мышь: клик по планете — карточка, наведение — подсказка
 const raycaster = new THREE.Raycaster()
@@ -348,6 +488,60 @@ const rayFromEvent = (e) => {
   return hits.length ? planets.find((p) => p.mesh === hits[0].object) : null
 }
 
+// ─── [FEATURE:SYSTEMS] карта галактики ───
+// Когда камера далеко от цели, звёзды чужих систем — это точки в паре
+// пикселей, рейкастом их не поймать. Поэтому ищем ближайшую по экрану:
+// навёлся — увидел название, кликнул — провалился в систему.
+const mapMode = () => camera.position.distanceTo(controls.target) > 260
+let hoveredSystem = -1
+const navDir = new THREE.Vector3()
+
+const pickSystemAt = (e) => {
+  if (!mapMode()) return -1
+  const rect = renderer.domElement.getBoundingClientRect()
+  const mx = e.clientX - rect.left
+  const my = e.clientY - rect.top
+  const forward = camera.getWorldDirection(navDir)
+  let best = -1
+  let bestDist = 26 // радиус захвата, px
+  const total = 1 + (systems ? systems.systems.length : 0)
+  for (let i = 0; i < total; i++) {
+    systemWorldPos(i, navScratch)
+    navScratch2.copy(navScratch).sub(camera.position)
+    if (navScratch2.dot(forward) <= 0) continue // за спиной
+    navScratch.project(camera)
+    const sx = (navScratch.x * 0.5 + 0.5) * rect.width
+    const sy = (-navScratch.y * 0.5 + 0.5) * rect.height
+    const d = Math.hypot(sx - mx, sy - my)
+    if (d < bestDist) {
+      bestDist = d
+      best = i
+    }
+  }
+  return best
+}
+
+const systemTip = (index) => {
+  const rig = sysRig(index)
+  const color = rig ? rig.spec.starClass.color : 0xffd27a
+  return {
+    name: rig ? rig.spec.name : 'Солнечная система',
+    dot: '#' + color.toString(16).padStart(6, '0'),
+    rows: rig
+      ? [
+          ['Класс', rig.spec.starClass.name],
+          ['Планет', String(rig.spec.planets.length)],
+          ['Каталог', rig.spec.catalog]
+        ]
+      : [
+          ['Класс', 'жёлтый карлик'],
+          ['Планет', '8'],
+          ['Каталог', 'наш дом']
+        ],
+    getWorld: (out) => systemWorldPos(index, out)
+  }
+}
+
 renderer.domElement.addEventListener('pointerdown', (e) => {
   pointerDown = { x: e.clientX, y: e.clientY, t: performance.now() }
 })
@@ -358,18 +552,38 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   const dt = performance.now() - pointerDown.t
   pointerDown = null
   if (moved > 6 || dt > 500) return // это было вращение камеры
+  const sysIndex = pickSystemAt(e)
+  if (sysIndex >= 0) {
+    tooltip.hide()
+    hoveredSystem = -1
+    return enterSystem(sysIndex)
+  }
   select(rayFromEvent(e))
 })
 
-// ─── [FEATURE:HOVER] подсказка рядом с планетой ───
+// ─── [FEATURE:HOVER] подсказка рядом с планетой или системой ───
 renderer.domElement.addEventListener('pointermove', (e) => {
   if (pointerDown) return // тянем камеру — подсказку не трогаем
+  if (mapMode()) {
+    const index = pickSystemAt(e)
+    if (index !== hoveredSystem) {
+      hoveredSystem = index
+      if (index >= 0) tooltip.show(systemTip(index))
+      else tooltip.hide()
+    }
+    if (index >= 0) return // навёлся на систему — планетную подсказку не мешаем
+  } else if (hoveredSystem !== -1) {
+    hoveredSystem = -1
+  }
   const rig = rayFromEvent(e)
   // у выбранной планеты уже есть карточка — подсказка не нужна
   if (!rig || rig === selected) tooltip.hide()
   else tooltip.show(rig)
 })
-renderer.domElement.addEventListener('pointerleave', () => tooltip.hide())
+renderer.domElement.addEventListener('pointerleave', () => {
+  hoveredSystem = -1
+  tooltip.hide()
+})
 
 // 8. Игровой цикл
 const clock = new THREE.Clock()
@@ -439,10 +653,10 @@ function animate() {
   // ─── [FEATURE:GALAXY] галактика медленно «живёт» (вращается целиком) ───
   galaxy.update(delta, motionScale)
 
-  // Скайбокс-сферы работают только «изнутри» — снаружи их прячем
-  setOutsideView(camera.position.length() > 460)
+  // ─── [FEATURE:SYSTEMS] планеты чужих систем — по тем же законам Кеплера ───
+  if (systems) systems.update(orbitStep, spinStep)
 
-  // Полёт камеры (наружу к галактике / назад к системе)
+  // Полёт камеры (наружу к галактике / внутрь системы)
   if (camFlight) {
     camFlight.t += delta
     const k = Math.min(1, camFlight.t / camFlight.duration)
@@ -456,7 +670,43 @@ function animate() {
     }
   }
 
+  // ─── [FEATURE:SYSTEMS] «едем» вместе с системой: галактика вращается,
+  //     поэтому звезду системы надо держать на месте относительно камеры ───
+  if (focus.kind === 'system' && focus.index > 0 && !camFlight && systems) {
+    systemWorldPos(focus.index, navScratch)
+    if (following) {
+      navScratch2.copy(navScratch).sub(followPrev)
+      camera.position.add(navScratch2)
+      controls.target.add(navScratch2)
+    }
+    followPrev.copy(navScratch)
+    following = true
+  } else {
+    following = false
+  }
+
+  const camDist = camera.position.distanceTo(controls.target)
+
+  // ─── [FEATURE:SYSTEMS] отлетел от системы — вернулись к галактике ───
+  if (focus.kind === 'system' && !camFlight && camDist > GALAXY.exitDistance) viewGalaxy()
+
+  // ─── [FEATURE:GALAXY] пылевые полосы показываем только издалека:
+  //     вблизи они мазали бы тёмными пятнами планеты ───
+  const dustK = Math.min(
+    1,
+    Math.max(0, (camDist - GALAXY.dustNear) / (GALAXY.dustFar - GALAXY.dustNear))
+  )
+  galaxy.dust.visible = options.galaxy && dustK > 0.01
+  galaxy.dust.material.opacity = GALAXY.dustOpacity * dustK
+
+  // Маркер «вы здесь» — только на общем плане галактики
+  homeMarker.visible = options.galaxy && camDist > 420
+
   controls.update()
+
+  // Небо «возим» за камерой: скайбокс всегда вокруг нас
+  skyRoot.position.copy(camera.position)
+
   renderer.render(scene, camera)
 
   // ─── [FEATURE:CARD] / [FEATURE:HOVER] 2D-слой держим привязанным к 3D ───
