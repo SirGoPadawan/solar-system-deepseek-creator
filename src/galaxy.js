@@ -99,10 +99,12 @@ export const generateGalaxyPoints = (options = {}) => {
     positions[i3 + 2] = pz
 
     // ─── Интерполяция цвета: ядро (ярко-белое/жёлтое) → середина (голубая) →
-    //     концы рукавов (глубокий синий/фиолетовый) ───
+    //     концы рукавов (глубокий синий/фиолетовый).
+    //     ВАЖНО: в three r186 у Color нет `mix()`, ровно тот же смысл даёт `lerp()`
+    //     (`mix(color, a)` === `lerp(color, a)`), поэтому используем его. ───
     const k = Math.pow(t, 0.8)
-    if (k < 0.5) color.copy(cCore).mix(cMid, k * 2)
-    else color.copy(cMid).mix(cArm, (k - 0.5) * 2)
+    if (k < 0.5) color.copy(cCore).lerp(cMid, k * 2)
+    else color.copy(cMid).lerp(cArm, (k - 0.5) * 2)
 
     // Каждая звезда чуть своего оттенка/яркости — скопление выглядит живым
     const brightness = 0.35 + Math.random() * 0.65
