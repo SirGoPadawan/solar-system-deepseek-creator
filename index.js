@@ -1,5 +1,7 @@
-import * as THREE from 'three'
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+/* import * as THREE from 'three'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js' */
+import * as THREE from 'https://unpkg.com'
+import { OrbitControls } from 'https://unpkg.com'
 
 // ─────────────────────────────────────────────────────────────
 // КОНСТАНТЫ СЦЕНЫ
@@ -26,13 +28,49 @@ const MOTION_DIR = new THREE.Vector3(0, 1, 0)
 
 // Описание планет: тип, радиус, расстояние от центра, скорость по орбите, скорость вращения вокруг оси
 const PLANETS = [
-  { type: 'sun',     radius: 3.2,  distance: 0,    orbitSpeed: 0,     spinSpeed: 0.0015 },
-  { type: 'mercury', radius: 0.42, distance: 5.8,  orbitSpeed: 0.015, spinSpeed: 0.004 },
-  { type: 'venus',   radius: 0.72, distance: 8.0,  orbitSpeed: 0.012, spinSpeed: 0.003 },
-  { type: 'earth',   radius: 0.85, distance: 11.2, orbitSpeed: 0.009, spinSpeed: 0.02 },
-  { type: 'mars',    radius: 0.6,  distance: 14.5, orbitSpeed: 0.007, spinSpeed: 0.018 },
-  { type: 'jupiter', radius: 1.65, distance: 19.5, orbitSpeed: 0.003, spinSpeed: 0.03 },
-  { type: 'saturn',  radius: 1.3,  distance: 24.5, orbitSpeed: 0.002, spinSpeed: 0.025 }
+  { type: 'sun', radius: 3.2, distance: 0, orbitSpeed: 0, spinSpeed: 0.0015 },
+  {
+    type: 'mercury',
+    radius: 0.42,
+    distance: 5.8,
+    orbitSpeed: 0.015,
+    spinSpeed: 0.004
+  },
+  {
+    type: 'venus',
+    radius: 0.72,
+    distance: 8.0,
+    orbitSpeed: 0.012,
+    spinSpeed: 0.003
+  },
+  {
+    type: 'earth',
+    radius: 0.85,
+    distance: 11.2,
+    orbitSpeed: 0.009,
+    spinSpeed: 0.02
+  },
+  {
+    type: 'mars',
+    radius: 0.6,
+    distance: 14.5,
+    orbitSpeed: 0.007,
+    spinSpeed: 0.018
+  },
+  {
+    type: 'jupiter',
+    radius: 1.65,
+    distance: 19.5,
+    orbitSpeed: 0.003,
+    spinSpeed: 0.03
+  },
+  {
+    type: 'saturn',
+    radius: 1.3,
+    distance: 24.5,
+    orbitSpeed: 0.002,
+    spinSpeed: 0.025
+  }
 ]
 
 // 1. НАСТРОЙКА КИНЕМАТОГРАФИЧНОГО РЕНДЕРЕРА
@@ -117,12 +155,19 @@ for (let i = 0; i < STAR_COUNT; i++) {
   starPositions[i3 + 1] = starBase[i3 + 1]
   starPositions[i3 + 2] = starBase[i3 + 2]
   // Легкий разброс по температуре: от голубоватых до теплых звезд
-  starColor.setHSL(0.55 + Math.random() * 0.12, 0.4, 0.75 + Math.random() * 0.25)
+  starColor.setHSL(
+    0.55 + Math.random() * 0.12,
+    0.4,
+    0.75 + Math.random() * 0.25
+  )
   starColors[i3] = starColor.r
   starColors[i3 + 1] = starColor.g
   starColors[i3 + 2] = starColor.b
 }
-starsGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3))
+starsGeometry.setAttribute(
+  'position',
+  new THREE.BufferAttribute(starPositions, 3)
+)
 starsGeometry.setAttribute('color', new THREE.BufferAttribute(starColors, 3))
 const starField = new THREE.Points(
   starsGeometry,
@@ -154,7 +199,10 @@ const contrast = (t, amount) => clamp01((t - 0.5) * amount + 0.5)
 
 // Целочисленный хэш -> псевдослучайное [0, 1)
 const hash2 = (x, y, seed) => {
-  let h = Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1) ^ Math.imul(seed, 0x9e3779b1)
+  let h =
+    Math.imul(x, 0x27d4eb2d) ^
+    Math.imul(y, 0x165667b1) ^
+    Math.imul(seed, 0x9e3779b1)
   h = Math.imul(h ^ (h >>> 15), 0x85ebca6b)
   h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35)
   h ^= h >>> 16
@@ -207,7 +255,11 @@ const sampleGradient = (stops, t) => {
     const [p1, c1] = stops[i + 1]
     if (t <= p1) {
       const k = (t - p0) / (p1 - p0 || 1)
-      return [c0[0] + (c1[0] - c0[0]) * k, c0[1] + (c1[1] - c0[1]) * k, c0[2] + (c1[2] - c0[2]) * k]
+      return [
+        c0[0] + (c1[0] - c0[0]) * k,
+        c0[1] + (c1[1] - c0[1]) * k,
+        c0[2] + (c1[2] - c0[2]) * k
+      ]
     }
   }
   return stops[stops.length - 1][1]
@@ -249,8 +301,26 @@ const MARS = gradient([
   [0.7, '#bd5522'],
   [1.0, '#e29a63']
 ])
-const JUPITER_BANDS = ['#5a3a22', '#e6d4b0', '#7d5636', '#f3e9d2', '#6a4530', '#c9a878', '#4e3520', '#ecdcc0', '#7a5638'].map(hexToRgb)
-const SATURN_BANDS = ['#b9975f', '#f0e0b4', '#a17f4e', '#f6ecd0', '#b09063', '#8f7040', '#ecd9b4'].map(hexToRgb)
+const JUPITER_BANDS = [
+  '#5a3a22',
+  '#e6d4b0',
+  '#7d5636',
+  '#f3e9d2',
+  '#6a4530',
+  '#c9a878',
+  '#4e3520',
+  '#ecdcc0',
+  '#7a5638'
+].map(hexToRgb)
+const SATURN_BANDS = [
+  '#b9975f',
+  '#f0e0b4',
+  '#a17f4e',
+  '#f6ecd0',
+  '#b09063',
+  '#8f7040',
+  '#ecd9b4'
+].map(hexToRgb)
 
 // Пересчёт каждого пикселя текстуры по функции-шейдеру
 const paintPixels = (ctx, shader) => {
@@ -271,7 +341,10 @@ const paintPixels = (ctx, shader) => {
 const sunShader = (u, v, data, i) => {
   const granulation = fbm(u, v, 6, 16, 101)
   const large = fbm(u, v, 3, 4, 137)
-  const [r, g, b] = sampleGradient(SUN, contrast(granulation * 0.62 + large * 0.38, 1.9))
+  const [r, g, b] = sampleGradient(
+    SUN,
+    contrast(granulation * 0.62 + large * 0.38, 1.9)
+  )
   data[i] = r
   data[i + 1] = g
   data[i + 2] = b
@@ -293,7 +366,10 @@ const venusShader = (u, v, data, i) => {
   // Растягиваем шум по вертикали -> горизонтальные вихри облаков
   const swirl = fbm(u, v * 2.4, 6, 5, 211)
   const detail = fbm(u, v * 3.0, 4, 12, 233)
-  const [r, g, b] = sampleGradient(VENUS, contrast(swirl * 0.7 + detail * 0.3, 1.5))
+  const [r, g, b] = sampleGradient(
+    VENUS,
+    contrast(swirl * 0.7 + detail * 0.3, 1.5)
+  )
   data[i] = r
   data[i + 1] = g
   data[i + 2] = b
@@ -309,7 +385,10 @@ const earthShader = (u, v, data, i) => {
   if (height < seaLevel) {
     ;[r, g, b] = sampleGradient(OCEAN, height / seaLevel)
   } else {
-    ;[r, g, b] = sampleGradient(LAND, contrast((height - seaLevel) / (1 - seaLevel), 1.3))
+    ;[r, g, b] = sampleGradient(
+      LAND,
+      contrast((height - seaLevel) / (1 - seaLevel), 1.3)
+    )
   }
   // Полярные ледяные шапки
   const ice = Math.max(smoothstep(0.09, 0, v), smoothstep(0.91, 1, v)) * 0.9
@@ -333,7 +412,10 @@ const earthShader = (u, v, data, i) => {
 const marsShader = (u, v, data, i) => {
   const height = fbm(u, v, 6, 6, 401)
   const detail = fbm(u, v, 4, 20, 421)
-  const [r0, g0, b0] = sampleGradient(MARS, contrast(height * 0.7 + detail * 0.3, 1.4))
+  const [r0, g0, b0] = sampleGradient(
+    MARS,
+    contrast(height * 0.7 + detail * 0.3, 1.4)
+  )
   let r = r0
   let g = g0
   let b = b0
@@ -349,36 +431,41 @@ const marsShader = (u, v, data, i) => {
 }
 
 // Газовые гиганты: полосы, искажённые турбулентностью
-const makeBandedShader = (bands, { warpSeed, warpAmount, smoothLo, streakSeed, streakAmount, polarDarken }) => (u, v, data, i) => {
-  // Медленный крупный изгиб полос + мелкая турбулентность
-  const warp =
-    (fbm(u, v, 4, 4, warpSeed) - 0.5) * warpAmount +
-    (fbm(u, v, 4, 10, warpSeed + 17) - 0.5) * warpAmount * 0.5
-  const band = (v + warp) * bands.length
-  const bi = Math.floor(band)
-  const bt = band - bi
-  const n = bands.length
-  const c0 = bands[((bi % n) + n) % n]
-  const c1 = bands[(((bi + 1) % n) + n) % n]
-  // Узкая зона перехода -> более чёткие границы полос
-  const k = smoothstep(smoothLo, 1, bt)
-  let r = c0[0] + (c1[0] - c0[0]) * k
-  let g = c0[1] + (c1[1] - c0[1]) * k
-  let b = c0[2] + (c1[2] - c0[2]) * k
-  // Зональные потоки: шум, растянутый по горизонтали внутри полос
-  const streak = fbm(u, v * 6, 4, 16, streakSeed)
-  const shade = 1 - streakAmount + streak * streakAmount * 2
-  r *= shade
-  g *= shade
-  b *= shade
-  // Затемнение к полюсам
-  const polar = smoothstep(0.12, 0, v) + smoothstep(0.88, 1, v)
-  const dark = 1 - polar * polarDarken
-  data[i] = r * dark
-  data[i + 1] = g * dark
-  data[i + 2] = b * dark
-  data[i + 3] = 255
-}
+const makeBandedShader =
+  (
+    bands,
+    { warpSeed, warpAmount, smoothLo, streakSeed, streakAmount, polarDarken }
+  ) =>
+  (u, v, data, i) => {
+    // Медленный крупный изгиб полос + мелкая турбулентность
+    const warp =
+      (fbm(u, v, 4, 4, warpSeed) - 0.5) * warpAmount +
+      (fbm(u, v, 4, 10, warpSeed + 17) - 0.5) * warpAmount * 0.5
+    const band = (v + warp) * bands.length
+    const bi = Math.floor(band)
+    const bt = band - bi
+    const n = bands.length
+    const c0 = bands[((bi % n) + n) % n]
+    const c1 = bands[(((bi + 1) % n) + n) % n]
+    // Узкая зона перехода -> более чёткие границы полос
+    const k = smoothstep(smoothLo, 1, bt)
+    let r = c0[0] + (c1[0] - c0[0]) * k
+    let g = c0[1] + (c1[1] - c0[1]) * k
+    let b = c0[2] + (c1[2] - c0[2]) * k
+    // Зональные потоки: шум, растянутый по горизонтали внутри полос
+    const streak = fbm(u, v * 6, 4, 16, streakSeed)
+    const shade = 1 - streakAmount + streak * streakAmount * 2
+    r *= shade
+    g *= shade
+    b *= shade
+    // Затемнение к полюсам
+    const polar = smoothstep(0.12, 0, v) + smoothstep(0.88, 1, v)
+    const dark = 1 - polar * polarDarken
+    data[i] = r * dark
+    data[i + 1] = g * dark
+    data[i + 2] = b * dark
+    data[i + 3] = 255
+  }
 
 const jupiterShader = makeBandedShader(JUPITER_BANDS, {
   warpSeed: 61,
@@ -445,7 +532,8 @@ function createProPlanetTexture(type, size) {
   canvas.width = size
   canvas.height = size / 2
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Не удалось создать 2D-контекст для текстуры планеты')
+  if (!ctx)
+    throw new Error('Не удалось создать 2D-контекст для текстуры планеты')
 
   paintPixels(ctx, shader)
   if (OVERLAYS[type]) OVERLAYS[type](ctx)
@@ -639,8 +727,14 @@ const createTrailLine = (color) => {
   const positions = new Float32Array(TRAIL_POINTS * 3)
   const colors = new Float32Array(TRAIL_POINTS * 3)
   const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage))
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3).setUsage(THREE.DynamicDrawUsage))
+  geometry.setAttribute(
+    'position',
+    new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage)
+  )
+  geometry.setAttribute(
+    'color',
+    new THREE.BufferAttribute(colors, 3).setUsage(THREE.DynamicDrawUsage)
+  )
   const line = new THREE.Line(
     geometry,
     new THREE.LineBasicMaterial({
@@ -678,7 +772,10 @@ const updateTrails = () => {
       const age = rel * TRAIL_TIME
       // Положение планеты в прошлом: орбита в группе + наклон всей системы
       trailEuler.set(ORBIT_TILT, theta0 - b.omega * age, 0, 'XYZ')
-      trailVec.set(b.distance, 0, 0).applyEuler(trailEuler).applyEuler(systemTilt)
+      trailVec
+        .set(b.distance, 0, 0)
+        .applyEuler(trailEuler)
+        .applyEuler(systemTilt)
       // Смещение назад — как если бы система всё это время летела вперёд
       trailVec.addScaledVector(MOTION_DIR, -MOTION_SPEED * age)
       t.positions[k * 3] = trailVec.x
@@ -716,9 +813,18 @@ function animate() {
   const period = STAR_BOX * 2
   for (let i = 0; i < STAR_COUNT; i++) {
     const i3 = i * 3
-    starPositions[i3] = wrapBox(starBase[i3] - MOTION_DIR.x * starTravel, period)
-    starPositions[i3 + 1] = wrapBox(starBase[i3 + 1] - MOTION_DIR.y * starTravel, period)
-    starPositions[i3 + 2] = wrapBox(starBase[i3 + 2] - MOTION_DIR.z * starTravel, period)
+    starPositions[i3] = wrapBox(
+      starBase[i3] - MOTION_DIR.x * starTravel,
+      period
+    )
+    starPositions[i3 + 1] = wrapBox(
+      starBase[i3 + 1] - MOTION_DIR.y * starTravel,
+      period
+    )
+    starPositions[i3 + 2] = wrapBox(
+      starBase[i3 + 2] - MOTION_DIR.z * starTravel,
+      period
+    )
   }
   starsGeometry.attributes.position.needsUpdate = true
 
@@ -732,7 +838,7 @@ animate()
 
 // Обёртка координаты в диапазоне [-period/2, period/2) — для бесконечного неба
 function wrapBox(v, period) {
-  return -period / 2 + (((v + period / 2) % period) + period) % period
+  return -period / 2 + ((((v + period / 2) % period) + period) % period)
 }
 
 window.addEventListener('resize', () => {
