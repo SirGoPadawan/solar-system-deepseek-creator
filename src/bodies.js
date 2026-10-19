@@ -264,6 +264,57 @@ export const createSunEffects = (radius) => {
   return { glow, glowOuter, corona, update }
 }
 
+// ─── [FEATURE:SUN] материал фотосферы: лимб-даркенинг + «кипение» ───
+// Берём тайл текстуры, смешиваем два слоя с небольшим взаимным смещением
+// (даёт эффект бурлящей плазмы) и затемняем к краю диска (лимб-даркенинг).
+export const createSunMaterial = (texture) =>
+  new THREE.ShaderMaterial({
+    uniforms: {
+      uMap: { value: texture },
+      uTime: { value: 0 }
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      varying vec3 vNormal;
+      varying vec3 vView;
+      void main() {
+        vUv = uv;
+        vNormal = normalize(normalMatrix * normal);
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vView = normalize(-mv.xyz);
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D uMap;
+      uniform float uTime;
+      varying vec2 vUv;
+      varying vec3 vNormal;
+      varying vec3 vView;
+      void main() {
+        // Два слоя текстуры, медленно «плывущих» навстречу друг другу
+        float t = uTime * 0.015;
+        vec3 c1 = texture2D(uMap, vUv + vec2(t, t * 0.33)).rgb;
+        vec3 c2 = texture2D(uMap, vUv - vec2(t * 0.8, t * 0.21)).rgb;
+        vec3 tex = mix(c1, c2, 0.5);
+
+        // Лимб-даркенинг: центр диска ярче, край темнее
+        float ndv = clamp(dot(normalize(vNormal), normalize(vView)), 0.0, 1.0);
+        float limb = 0.30 + 0.70 * pow(ndv, 0.5);
+
+        vec3 col = tex * limb * 1.45;
+        // Самые горячие участки подмешиваем к тёплому белому
+        float hot = smoothstep(0.55, 1.0, dot(tex, vec3(0.3333)));
+        col += vec3(0.32, 0.20, 0.05) * hot;
+
+        gl_FragColor = vec4(col, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }
+    `,
+    toneMapped: true
+  })
+
 // ── Одна планета + её орбита, спутники и аппараты ──
 export const createPlanet = (parent, config) => {
   const { type, radius, distance, axialTilt, moons, artificial } = config
@@ -302,7 +353,7 @@ export const createPlanet = (parent, config) => {
   const texture = createProPlanetTexture(type, textureSize(radius))
   const material =
     type === 'sun'
-      ? new THREE.MeshBasicMaterial({ map: texture, toneMapped: false })
+      ? createSunMaterial(texture)
       : new THREE.MeshStandardMaterial({
           map: texture,
           roughness: 0.65,
@@ -363,7 +414,13 @@ export const createPlanet = (parent, config) => {
   // Запоминаем исходный emissive — нужен для подсветки выбранной планеты в UI
   const emissive = mesh.material.emissive ? mesh.material.emissive.clone() : null
 
-  return { config, mesh, orbitGroup, holder, moonRigs, satRigs, emissive }
+  // ─── [FEATURE:UI] линии орбит (планета + кольца спутников/аппаратов) — для тумблера «Орбиты»
+  const orbitLines = []
+  orbitGroup.traverse((obj) => {
+    if (obj.isLine) orbitLines.push(obj)
+  })
+
+  return { config, mesh, orbitGroup, holder, moonRigs, satRigs, emissive, orbitLines }
 }
 
 // ─── [FEATURE:TESLA] Tesla Roadster со Starman за рулём ───

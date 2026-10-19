@@ -39,7 +39,7 @@ const createTrailLine = (scene, color) => {
   )
   line.frustumCulled = false
   scene.add(line)
-  return { geometry, positions, colors, base: new THREE.Color(color) }
+  return { geometry, positions, colors, base: new THREE.Color(color), line }
 }
 
 export const createTrails = (scene, rigs) => {
@@ -49,6 +49,9 @@ export const createTrails = (scene, rigs) => {
     omega: rig.config.orbitSpeed * 60, // угловая скорость, рад/сек
     trail: createTrailLine(scene, trailColors[rig.config.type])
   }))
+
+  // Ссылки на линии следов — для тумблера «Винтовые следы» и скрытия планеты
+  const lines = bodies.map((b) => b.trail.line)
 
   const euler = new THREE.Euler()
   const systemTilt = new THREE.Euler(SYSTEM_TILT_X, 0, SYSTEM_TILT_Z, 'XYZ')
@@ -83,5 +86,5 @@ export const createTrails = (scene, rigs) => {
     })
   }
 
-  return { update }
+  return { update, lines }
 }

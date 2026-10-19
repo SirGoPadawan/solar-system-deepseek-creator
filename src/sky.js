@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { STAR_COUNT, STAR_BOX, MOTION_DIR } from './config.js'
-import { glowTexture, createNebulaTexture } from './textures.js'
+import { starTexture, createNebulaTexture } from './textures.js'
 
 // ─────────────────────────────────────────────────────────────
 // НЕБО: бесконечное звёздное поле (стримится навстречу) и туманность.
@@ -38,12 +38,13 @@ export const createStarfield = () => {
   const points = new THREE.Points(
     geometry,
     new THREE.PointsMaterial({
-      size: 0.6,
-      map: glowTexture,
+      size: 0.5,
+      map: starTexture,
       vertexColors: true,
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
+      alphaTest: 0.01,
       sizeAttenuation: true
     })
   )

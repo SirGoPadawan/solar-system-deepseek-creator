@@ -12,9 +12,14 @@ const TAIL_POINTS = 44
 
 // ─── [FEATURE:COMETS] ───
 export const createComets = (parent) => {
+  // Общая группа, чтобы кометами можно было управлять одним тумблером
+  const root = new THREE.Group()
+  parent.add(root)
+
+  const orbitLines = []
   const comets = COMETS.map((cfg) => {
     const group = new THREE.Object3D()
-    parent.add(group)
+    root.add(group)
 
     const nucleus = new THREE.Mesh(
       new THREE.IcosahedronGeometry(cfg.size, 1),
@@ -61,7 +66,8 @@ export const createComets = (parent) => {
     tail.frustumCulled = false
     group.add(tail)
 
-    createEllipseOrbit(parent, cfg.a, cfg.e, cfg.inc, 0x66ccff, 0.1)
+    // Линию орбиты запоминаем отдельно (хвосты комет — тоже Line, их трогать нельзя)
+    orbitLines.push(createEllipseOrbit(root, cfg.a, cfg.e, cfg.inc, 0x66ccff, 0.1))
 
     return {
       cfg,
@@ -111,15 +117,18 @@ export const createComets = (parent) => {
     })
   }
 
-  return { update }
+  return { update, root, orbitLines }
 }
 
 // ─── [FEATURE:TESLA] Tesla Roadster со Starman на гелиоцентрической орбите ───
 export const createStarman = (parent) => {
-  const { group, glowMat } = buildTesla(TESLA.scale)
-  parent.add(group)
+  const root = new THREE.Group()
+  parent.add(root)
 
-  createEllipseOrbit(parent, TESLA.a, TESLA.e, TESLA.inc, 0xff6a6a, 0.14)
+  const { group, glowMat } = buildTesla(TESLA.scale)
+  root.add(group)
+
+  const orbitLine = createEllipseOrbit(root, TESLA.a, TESLA.e, TESLA.inc, 0xff6a6a, 0.14)
 
   const euler = new THREE.Euler(TESLA.inc, 0, 0, 'XYZ')
   const pos = new THREE.Vector3()
@@ -142,5 +151,5 @@ export const createStarman = (parent) => {
     glowMat.opacity = 0.22 + 0.18 * Math.abs(Math.sin(elapsed * 2))
   }
 
-  return { update, group }
+  return { update, group, root, orbitLines: [orbitLine] }
 }

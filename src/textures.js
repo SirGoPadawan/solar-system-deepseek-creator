@@ -17,12 +17,14 @@ import {
 // ─────────────────────────────────────────────────────────────
 
 // ── Палитры планет ──
+// Тёплая «кипящая» фотосфера: от тёмно-бурого в гранулах до почти белого ядра
 const SUN = gradient([
-  [0.0, '#2a0200'],
-  [0.3, '#8f1000'],
-  [0.55, '#ff5200'],
-  [0.78, '#ffb03a'],
-  [1.0, '#fff6cf']
+  [0.0, '#2e0700'],
+  [0.22, '#a12a00'],
+  [0.45, '#ff6a12'],
+  [0.66, '#ffb02f'],
+  [0.84, '#ffe487'],
+  [1.0, '#fffdf2']
 ])
 const MERCURY = gradient([
   [0.0, '#33312d'],
@@ -92,13 +94,15 @@ const NEPTUNE_BANDS = [
 ].map(hexToRgb)
 
 // ── Шейдеры планет (пиксельные функции) ──
+// Фотосфера: мелкая грануляция + крупные «ячейки» + яркие факелы вокруг пятен
 const sunShader = (u, v, data, i) => {
-  const granulation = fbm(u, v, 6, 16, 101)
-  const large = fbm(u, v, 3, 4, 137)
-  const [r, g, b] = sampleGradient(
-    SUN,
-    contrast(granulation * 0.62 + large * 0.38, 1.9)
-  )
+  const granulation = fbm(u, v, 7, 22, 101)
+  const cells = fbm(u, v, 4, 6, 137)
+  const faculae = fbm(u, v, 5, 9, 173)
+  let t = contrast(granulation * 0.5 + cells * 0.5, 2.2)
+  // Факелы (яркая сеть) — подмешиваем светлые горячие участки
+  t = clamp01(t + Math.pow(clamp01((faculae - 0.5) * 1.6 + 0.5), 3) * 0.22)
+  const [r, g, b] = sampleGradient(SUN, t)
   data[i] = r
   data[i + 1] = g
   data[i + 2] = b
@@ -268,29 +272,43 @@ const drawGreatRedSpot = (ctx) => {
   ctx.restore()
 }
 
-// ─── [FEATURE:SUN] солнечные пятна (тёмные пятна на фотосфере) ───
+// ─── [FEATURE:SUN] солнечные пятна: тёмная умбра + мягкая полутень (пенумбра) ───
 const drawSunspots = (ctx) => {
   const { width, height } = ctx.canvas
+  // Группы пятен: [x, y, radius] в долях текстуры
   const spots = [
-    [0.18, 0.42, 0.028],
-    [0.24, 0.5, 0.016],
-    [0.62, 0.36, 0.022],
-    [0.68, 0.44, 0.013],
-    [0.45, 0.66, 0.02],
-    [0.85, 0.55, 0.017]
+    [0.17, 0.43, 0.026],
+    [0.205, 0.49, 0.014],
+    [0.23, 0.4, 0.009],
+    [0.61, 0.35, 0.02],
+    [0.645, 0.42, 0.012],
+    [0.44, 0.67, 0.019],
+    [0.475, 0.6, 0.01],
+    [0.84, 0.54, 0.016],
+    [0.87, 0.6, 0.008]
   ]
   ctx.save()
   spots.forEach(([px, py, pr]) => {
     const cx = width * px
     const cy = height * py
     const r = width * pr
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r)
-    g.addColorStop(0, 'rgba(60, 12, 0, 0.85)')
-    g.addColorStop(0.6, 'rgba(120, 40, 0, 0.45)')
-    g.addColorStop(1, 'rgba(120, 40, 0, 0)')
-    ctx.fillStyle = g
+    // Полутень (широкая, слабая)
+    const pen = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r)
+    pen.addColorStop(0, 'rgba(96, 30, 0, 0.55)')
+    pen.addColorStop(0.7, 'rgba(120, 50, 0, 0.28)')
+    pen.addColorStop(1, 'rgba(140, 70, 10, 0)')
+    ctx.fillStyle = pen
     ctx.beginPath()
-    ctx.ellipse(cx, cy, r, r * 0.7, 0, 0, Math.PI * 2)
+    ctx.ellipse(cx, cy, r, r * 0.72, 0, 0, Math.PI * 2)
+    ctx.fill()
+    // Умбра (тёмное ядро)
+    const umb = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 0.45)
+    umb.addColorStop(0, 'rgba(28, 6, 0, 0.92)')
+    umb.addColorStop(0.6, 'rgba(58, 14, 0, 0.7)')
+    umb.addColorStop(1, 'rgba(70, 20, 0, 0)')
+    ctx.fillStyle = umb
+    ctx.beginPath()
+    ctx.ellipse(cx, cy, r * 0.45, r * 0.36, 0, 0, Math.PI * 2)
     ctx.fill()
   })
   ctx.restore()
@@ -363,7 +381,7 @@ const nebulaShader = (u, v, data, i) => {
   const base = fbm(u, v, 5, 3, 901)
   const ridge = 1 - Math.abs(2 * base - 1)
   const detail = fbm(u, v, 4, 7, 937)
-  const density = Math.pow(clamp01(ridge * 0.6 + detail * 0.4), 2.2)
+  const density = Math.pow(clamp01(ridge * 0.6 + detail * 0.4), 2.7)
 
   // Яркие ядра
   const coreSrc = fbm(u, v, 4, 5, 1013)
@@ -373,7 +391,8 @@ const nebulaShader = (u, v, data, i) => {
   const hue = clamp01(fbm(u, v, 3, 2, 971) * 0.75 + band * 0.45)
   const [cr, cg, cb] = sampleGradient(NEBULA_HUE, hue)
 
-  let k = density * (0.45 + band * 1.25) + core * (0.35 + band * 0.9)
+  // Немного «темноты»: слабые участки почти чёрные, яркие — контрастные
+  let k = density * (0.32 + band * 1.2) + core * (0.26 + band * 0.9)
 
   // Вкраплённые далёкие звёзды прямо в туманности
   const s = hash2(Math.floor(u * 700), Math.floor(v * 700), 2003)
@@ -398,19 +417,53 @@ export const createNebulaTexture = () => {
 }
 
 // ── Мягкая маска-градиент (для звёзд, свечения Солнца, комет) ──
-export const createGlowTexture = () => {
+// ── Мягкая маска-градиент (для свечения Солнца, комет, Теслы) ──
+export const createGlowTexture = (size = 64) => {
   const c = document.createElement('canvas')
-  c.width = 32
-  c.height = 32
-  const cx = c.getContext('2d')
-  const g = cx.createRadialGradient(16, 16, 0, 16, 16, 16)
+  c.width = size
+  c.height = size
+  const ctx = c.getContext('2d')
+  const r = size / 2
+  const g = ctx.createRadialGradient(r, r, 0, r, r, r)
   g.addColorStop(0, 'rgba(255,255,255,1)')
-  g.addColorStop(0.25, 'rgba(255,255,255,0.85)')
+  g.addColorStop(0.18, 'rgba(255,255,255,0.72)')
+  g.addColorStop(0.45, 'rgba(255,255,255,0.22)')
   g.addColorStop(1, 'rgba(255,255,255,0)')
-  cx.fillStyle = g
-  cx.fillRect(0, 0, 32, 32)
-  return new THREE.CanvasTexture(c)
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, size, size)
+  const texture = new THREE.CanvasTexture(c)
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
 }
 
-// Единый экземпляр маски на всё приложение (звёзды, Солнце, кометы, Тесла)
+// ─── [FEATURE:STARS] отдельная маска для звёзд ───
+// Компактное яркое ядро, гаснущее задолго до края квада. Раньше звёзды
+// использовали «широкую» маску-ореол, из-за чего при увеличении читались
+// как заблюренные квадраты — теперь ядро маленькое и круглое.
+export const createStarTexture = () => {
+  const size = 128
+  const c = document.createElement('canvas')
+  c.width = size
+  c.height = size
+  const ctx = c.getContext('2d')
+  const r = size / 2
+  const g = ctx.createRadialGradient(r, r, 0, r, r, r)
+  g.addColorStop(0, 'rgba(255,255,255,1)')
+  g.addColorStop(0.06, 'rgba(255,255,255,0.95)')
+  g.addColorStop(0.18, 'rgba(255,255,255,0.45)')
+  g.addColorStop(0.36, 'rgba(255,255,255,0.12)')
+  g.addColorStop(0.6, 'rgba(255,255,255,0)')
+  g.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, size, size)
+  const texture = new THREE.CanvasTexture(c)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.minFilter = THREE.LinearMipmapLinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.generateMipmaps = true
+  return texture
+}
+
+// Единые экземпляры масок на всё приложение
 export const glowTexture = createGlowTexture()
+export const starTexture = createStarTexture()
