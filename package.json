@@ -1,0 +1,30 @@
+{
+  "name": "threejs-solar-system",
+  "version": "1.0.0",
+  "description": "Интерактивная Солнечная система на Three.js: процедурные планеты, туманность, полёт по спирали с винтовыми следами.",
+  "main": "index.js",
+  "type": "module",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@onirenaud/node-webgl": "^0.2.0",
+    "canvas": "^3.2.3",
+    "cwebp": "^3.2.0",
+    "gif.js": "^0.2.0",
+    "jsdom": "^27.0.1",
+    "postprocessing": "^6.39.5",
+    "three": "^0.186.1",
+    "three-orbitcontrols-ts": "^0.1.2",
+    "webp-encoder": "^2.1.2"
+  }
+}
