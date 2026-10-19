@@ -318,6 +318,7 @@ const sysRig = (index) => (systems && index > 0 ? systems.systems[index - 1] : n
 const systemEntries = () => {
   const list = [
     { value: 'galaxy', label: '🌀 Обзор галактики' },
+    { value: 'core', label: '🕳 Центр галактики (ЧД)' },
     { value: '0', label: '🪐 Солнечная система' }
   ]
   ;(systems ? systems.systems : []).forEach((s, i) =>
@@ -391,6 +392,26 @@ const viewGalaxy = () => {
   controlsUi.setSystemInfo(galaxy.info)
 }
 
+// ─── [FEATURE:BLACKHOLE] подлететь к чёрной дыре в центре спирали ───
+// Дыра живёт в локальном (0,0,0) группы галактики, поэтому её мировая
+// позиция — это центр галактики и она не двигается вместе с рукавами.
+const viewCore = () => {
+  const center = galaxy.getCenter(new THREE.Vector3())
+  const n = galaxy.getNormal(new THREE.Vector3())
+  // смотрим сверху и сбоку, чтобы аккреционный диск читался эллипсом
+  const side = new THREE.Vector3(0, 0, 1).cross(n)
+  if (side.lengthSq() < 1e-6) side.set(1, 0, 0)
+  side.normalize()
+  const pos = center.addScaledVector(n, 48).addScaledVector(side, 96)
+  flyTo(pos, center)
+  focus = { kind: 'core', index: -2 }
+  following = false
+  attachVisitLight(-1)
+  controls.maxDistance = Math.max(1600, galaxy.viewDistance * 1.2)
+  controlsUi.setCurrent('core')
+  controlsUi.setSystemInfo('🕳 Стрелец A* · сверхмассивная чёрная дыра · аккреционный диск')
+}
+
 // Пересоздать галактику — «другая галактика» (форма, палитра и её системы)
 const regenerateGalaxy = () => {
   const visible = galaxy.group.visible
@@ -452,6 +473,7 @@ const controlsUi = createControls({
   // [FEATURE:SYSTEMS] выбор в списке: 'galaxy' или номер системы
   onNavigate: (value) => {
     if (value === 'galaxy') viewGalaxy()
+    else if (value === 'core') viewCore()
     else enterSystem(Number(value))
   }
 })
@@ -688,7 +710,12 @@ function animate() {
   const camDist = camera.position.distanceTo(controls.target)
 
   // ─── [FEATURE:SYSTEMS] отлетел от системы — вернулись к галактике ───
-  if (focus.kind === 'system' && !camFlight && camDist > GALAXY.exitDistance) viewGalaxy()
+  if (
+    (focus.kind === 'system' || focus.kind === 'core') &&
+    !camFlight &&
+    camDist > GALAXY.exitDistance
+  )
+    viewGalaxy()
 
   // ─── [FEATURE:GALAXY] пылевые полосы показываем только издалека:
   //     вблизи они мазали бы тёмными пятнами планеты ───

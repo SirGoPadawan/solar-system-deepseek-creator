@@ -1,6 +1,63 @@
 import * as THREE from 'three'
 import { GALAXY } from './config.js'
 import { starTexture, glowTexture } from './textures.js'
+import { createBlackHole } from './blackhole.js'
+
+// ─────────────────────────────────────────────────────────────
+// ─── [FEATURE:STARGLOW] круглые светящиеся маски звёзд ───
+//
+// Почему маски рисуются отдельно для галактики:
+//   1. PointsMaterial берёт АЛЬФУ из текстуры, а RGB умножает на цвет
+//      вершины. Значит форма точки = круглая маска, а цвет — из буфера.
+//   2. Мипмапы здесь вредят: точка на экране 2–4 px, а текстура 64 px,
+//      поэтому GPU выбирает верхний мип-уровень — там весь градиент уже
+//      усреднён в ровный полупрозрачный квадрат. Именно из-за этого звёзды
+//      выглядели «серыми квадратами». Отключаем mipmaps и оставляем
+//      линейную фильтрацию — точка остаётся круглой и с ярким центром.
+//   3. `size` в three умножается на devicePixelRatio (`uniforms.size =
+//      material.size * pixelRatio`), поэтому на retina 2.0 = 4 физических
+//      пикселя. Отсюда же и «квадратность» вблизи.
+// ─────────────────────────────────────────────────────────────
+const makeRadialTexture = (stops, size = 64) => {
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  const r = size / 2
+  const grad = ctx.createRadialGradient(r, r, 0, r, r, r)
+  stops.forEach(([at, alpha]) => grad.addColorStop(at, `rgba(255,255,255,${alpha})`))
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, size, size)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.generateMipmaps = false      // ← главный фикс «серых квадратов»
+  tex.minFilter = THREE.LinearFilter
+  tex.magFilter = THREE.LinearFilter
+  return tex
+}
+
+// Маски создаём лениво (и только в браузере): смоук-тесты гоняют этот файл
+// на Node без canvas — там просто берём общие текстуры.
+let starMaps = null
+const getStarMaps = () => {
+  if (starMaps) return starMaps
+  if (typeof document === 'undefined') {
+    starMaps = { star: starTexture, halo: glowTexture }
+    return starMaps
+  }
+  starMaps = {
+    // ядро звезды: белый центр, короткая «юбка», полностью прозрачные углы
+    star: makeRadialTexture([
+      [0, 1], [0.1, 1], [0.25, 0.55], [0.45, 0.16], [0.72, 0.03], [1, 0]
+    ]),
+    // ореол: широкое мягкое пятно для слоя свечения
+    halo: makeRadialTexture([
+      [0, 0.85], [0.2, 0.45], [0.45, 0.14], [0.75, 0.03], [1, 0]
+    ])
+  }
+  return starMaps
+}
 
 // ─────────────────────────────────────────────────────────────
 // ─── [FEATURE:GALAXY] спиральная галактика «Млечный Путь» ───
@@ -85,6 +142,8 @@ export const GALAXY_PRESETS = [
 //   youngShare      — доля горячих голубых звёзд (идут кучками по рукавам)
 //   hiiShare        — доля розовых областей звездообразования
 //   dustShare       — сколько точек пыли сгенерировать (отдельный массив)
+//   brightnessBoost — общий множитель яркости цветов вершин (1 = как есть);
+//                     >1 допустим: цвет — float-атрибут, а блендинг аддитивный
 export const generateGalaxyPoints = (options = {}) => {
   const {
     count = 100000,
@@ -102,6 +161,7 @@ export const generateGalaxyPoints = (options = {}) => {
     youngShare = 0.08,
     hiiShare = 0.02,
     dustShare = 0.16,
+    brightnessBoost = 1,
     coreColor = 0xffe0a0,
     midColor = 0x9dc4ff,
     armColor = 0x5a86ff,
@@ -121,6 +181,7 @@ export const generateGalaxyPoints = (options = {}) => {
   const cYoung = new THREE.Color(youngColor)
   const cHii = new THREE.Color(hiiColor)
   const cBulge = new THREE.Color(bulgeColor)
+  const cWhite = new THREE.Color(0xffffff)
   const color = new THREE.Color()
 
   const span = Math.max(1e-6, radius - innerRadius)
@@ -162,6 +223,9 @@ export const generateGalaxyPoints = (options = {}) => {
   for (let i = 0; i < count; i++) {
     const i3 = i * 3
     let brightness = 0.3 + Math.random() * 0.7
+    // «выгорание» ярких звёзд в белый: иначе каждая точка остаётся просто
+    // цветным пикселем, а не источником света (см. [FEATURE:STARGLOW])
+    let whiten = 0
 
     if (i < nBulge) {
       // ── БАЛДЖ + БАР: вытянутое ядро (у Млечного Пути есть центральный бар) ──
@@ -189,6 +253,7 @@ export const generateGalaxyPoints = (options = {}) => {
       color.copy(isHii ? cHii : cYoung)
       // HII — туманности, они светятся ровнее и ярче звёзд
       brightness = isHii ? 0.55 + Math.random() * 0.45 : 0.75 + Math.random() * 0.5
+      whiten = isHii ? 0 : 0.35
     } else {
       // ── ОСНОВНОЕ НАСЕЛЕНИЕ РУКАВОВ ──
       const b = pickBranch()
@@ -206,11 +271,15 @@ export const generateGalaxyPoints = (options = {}) => {
       const k = Math.pow(t, 0.75)
       if (k < 0.5) color.copy(cCore).lerp(cMid, k * 2)
       else color.copy(cMid).lerp(cArm, (k - 0.5) * 2)
+      whiten = Math.min(0.45, Math.max(0, brightness - 0.72) * 1.5)
     }
 
-    colors[i3] = color.r * brightness
-    colors[i3 + 1] = color.g * brightness
-    colors[i3 + 2] = color.b * brightness
+    if (whiten) color.lerp(cWhite, whiten)
+
+    const boost = brightness * brightnessBoost
+    colors[i3] = color.r * boost
+    colors[i3 + 1] = color.g * boost
+    colors[i3 + 2] = color.b * boost
   }
 
   // ── ПЫЛЕВЫЕ ПОЛОСЫ: тёмные точки по ВНУТРЕННЕМУ краю рукавов
@@ -287,6 +356,10 @@ export const createGalaxy = (options = GALAXY) => {
     dustShare,
     size,
     opacity,
+    starBrightness,
+    starGlow,
+    haloSize,
+    haloOpacity,
     coreColor,
     midColor,
     armColor,
@@ -300,7 +373,8 @@ export const createGalaxy = (options = GALAXY) => {
     coreOpacity,
     rotationSpeed,
     dustSize,
-    dustOpacity
+    dustOpacity,
+    blackHole: blackHoleOptions
   } = options
 
   const { positions, colors, dustPositions } = generateGalaxyPoints({
@@ -319,6 +393,7 @@ export const createGalaxy = (options = GALAXY) => {
     youngShare,
     hiiShare,
     dustShare,
+    brightnessBoost: starBrightness || 1,
     coreColor,
     midColor,
     armColor,
@@ -328,19 +403,26 @@ export const createGalaxy = (options = GALAXY) => {
   })
 
   // ── звёзды диска ──
+  const maps = getStarMaps()
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
 
   const material = new THREE.PointsMaterial({
+    // цвет-«множитель» белый: реальный цвет каждой звезды берётся из
+    // вершинного буфера (vertexColors), иначе палитра галактики потеряется
+    color: 0xffffff,
     size,
-    map: starTexture,
+    map: maps.star,
     vertexColors: true,
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     alphaTest: 0.01,
-    // без затухания по расстоянию: точка одинакова и вблизи, и вдали
+    // ВАЖНО: затухание по расстоянию выключено. Мы находимся ВНУТРИ диска,
+    // поэтому расстояния до звёзд различаются в сотни раз — с attenuation
+    // ближние точки стали бы огромными кляксами. Постоянный размер в
+    // экранных пикселях даёт ровную «космическую пыль» на любом плане.
     sizeAttenuation: false,
     fog: false,
     toneMapped: false,
@@ -351,12 +433,36 @@ export const createGalaxy = (options = GALAXY) => {
   points.frustumCulled = false // галактика огромная — пусть рисуется всегда
   points.renderOrder = -0.6 // после туманности (-1), до свечения фона и звёзд
 
+  // ── слой свечения: те же самые звёзды (общая геометрия — 0 лишней памяти),
+  //    но крупной мягкой маской и с низкой прозрачностью. Аддитивное
+  //    наложение даёт каждому источнику ореол, а в ядре — яркую вспышку. ──
+  let halo = null
+  if (starGlow) {
+    const haloMaterial = new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: haloSize,
+      map: maps.halo,
+      vertexColors: true,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      alphaTest: 0.005,
+      sizeAttenuation: false,
+      fog: false,
+      toneMapped: false,
+      opacity: haloOpacity
+    })
+    halo = new THREE.Points(geometry, haloMaterial)
+    halo.frustumCulled = false
+    halo.renderOrder = -0.65 // ореолы под ядрами звёзд
+  }
+
   // ── слой пыли: чёрные точки с обычным смешиванием гасят свечение рукавов ──
   const dustGeometry = new THREE.BufferGeometry()
   dustGeometry.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3))
   const dustMaterial = new THREE.PointsMaterial({
     size: dustSize,
-    map: glowTexture, // мягкое пятно, а не резкая точка
+    map: maps.halo, // мягкое круглое пятно без мипмапов
     color: 0x000000,
     transparent: true,
     opacity: dustOpacity,
@@ -370,6 +476,7 @@ export const createGalaxy = (options = GALAXY) => {
   dust.frustumCulled = false
   dust.renderOrder = -0.55 // строго ПОСЛЕ звёзд галактики, иначе не «погасит» их
   points.add(dust) // внутри диска: вращается вместе со звёздами
+  if (halo) points.add(halo) // ореолы — тоже часть диска
 
   // ── ориентация диска ──
   // Вращение живёт на `points` (вокруг нормали диска), наклон — на группе.
@@ -408,9 +515,19 @@ export const createGalaxy = (options = GALAXY) => {
     group.add(core) // в центре галактики (центр = начало координат группы)
   }
 
+  // ── чёрная дыра в центре спирали ──
+  // [FEATURE:BLACKHOLE] Сфера Шварцшильда + аккреционный диск + частицы.
+  // Ставим в локальный (0,0,0) группы — это и есть центр галактики.
+  let blackHole = null
+  if (blackHoleOptions && blackHoleOptions.enabled !== false) {
+    blackHole = createBlackHole(blackHoleOptions)
+    group.add(blackHole.root)
+  }
+
   // Медленное вращение диска (вместе со звёздами, пылью и системами-детьми)
   const update = (delta, motionScale = 1) => {
     points.rotation.y += rotationSpeed * delta * motionScale
+    if (blackHole) blackHole.update(delta, motionScale)
   }
 
   // Нормаль диска — нужна, чтобы поставить камеру «в плане» (см. main.js)
@@ -431,7 +548,9 @@ export const createGalaxy = (options = GALAXY) => {
     material.dispose()
     dustGeometry.dispose()
     dustMaterial.dispose()
+    if (halo) halo.material.dispose()
     if (core) core.material.dispose()
+    if (blackHole) blackHole.dispose()
     if (group.parent) group.parent.remove(group)
   }
 
@@ -439,7 +558,9 @@ export const createGalaxy = (options = GALAXY) => {
     group,
     points,
     dust,
+    halo,
     core,
+    blackHole,
     update,
     getNormal,
     getCenter,

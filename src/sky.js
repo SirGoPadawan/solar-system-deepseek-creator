@@ -38,14 +38,19 @@ export const createStarfield = () => {
   const points = new THREE.Points(
     geometry,
     new THREE.PointsMaterial({
-      size: 0.5,
+      // Звёзды неба — это «далёкая пыль», а не объекты с размером. Небо
+      // теперь едет за камерой, поэтому ближние звёзды могут оказаться в
+      // паре единиц от неё: с sizeAttenuation они раздувались в огромные
+      // мягкие блобы («серые квадраты»). Постоянный размер в пикселях
+      // убирает это полностью и заодно убирает мипмап-усреднение маски.
+      size: 1.7,
       map: starTexture,
       vertexColors: true,
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       alphaTest: 0.01,
-      sizeAttenuation: true,
+      sizeAttenuation: false,
       // звёзды — «дальний фон»: объёмный туман на них не действует
       fog: false
     })

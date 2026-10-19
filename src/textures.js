@@ -458,9 +458,13 @@ export const createStarTexture = () => {
   ctx.fillRect(0, 0, size, size)
   const texture = new THREE.CanvasTexture(c)
   texture.colorSpace = THREE.SRGBColorSpace
-  texture.minFilter = THREE.LinearMipmapLinearFilter
+  // ВАЖНО: без мипмапов. Звёзды галактики и неба — это точки в 2–4 px;
+  // с мипмапами GPU выбирает уровень, где весь градиент усреднён, и звезда
+  // превращается в серый полупрозрачный квадрат. Линейный фильтр без
+  // мипмапов оставляет её круглой с ярким центром.
+  texture.generateMipmaps = false
+  texture.minFilter = THREE.LinearFilter
   texture.magFilter = THREE.LinearFilter
-  texture.generateMipmaps = true
   return texture
 }
 

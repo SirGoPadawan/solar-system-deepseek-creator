@@ -142,6 +142,7 @@ class Obj3D {
     this.visible = true
     this.renderOrder = 0
     this.frustumCulled = true
+    this.userData = {}
   }
   add(...objs) {
     objs.forEach((o) => {
@@ -192,10 +193,33 @@ class Points extends Obj3D {
     this.material = material
   }
 }
+class Mesh extends Points {}
+class SphereGeometry extends BufferGeometry {
+  constructor(radius = 1) {
+    super()
+    this.parameters = { radius }
+  }
+}
+class RingGeometry extends SphereGeometry {
+  constructor(inner = 0.5, outer = 1) {
+    super(outer)
+    this.innerRadius = inner
+    this.outerRadius = outer
+  }
+}
 class Sprite extends Obj3D {
   constructor(material) {
     super()
     this.material = material
+  }
+}
+class CanvasTexture {
+  constructor(canvas) {
+    this.image = canvas
+    this.disposed = false
+  }
+  dispose() {
+    this.disposed = true
   }
 }
 
@@ -207,11 +231,19 @@ const THREE = {
   BufferGeometry,
   PointsMaterial: Material,
   SpriteMaterial: Material,
+  MeshBasicMaterial: Material,
   Points,
+  Mesh,
   Sprite,
   Group: Obj3D,
+  SphereGeometry,
+  RingGeometry,
+  CanvasTexture,
   AdditiveBlending: 2,
-  NormalBlending: 1
+  NormalBlending: 1,
+  DoubleSide: 2,
+  LinearFilter: 1006,
+  SRGBColorSpace: 'srgb'
 }
 
 // ───────────────────── загрузка реального кода ─────────────────────
@@ -222,15 +254,28 @@ const GALAXY = eval('(' + galaxyLiteral + ')')
 let src = fs.readFileSync(ROOT + '/src/galaxy.js', 'utf8')
 src = src.replace(/^import .*$/gm, '').replace(/^export const /gm, 'const ')
 
+// Чёрная дыра — отдельный модуль: грузим и его настоящий код, чтобы тест
+// проверял и сборку диска/сферы, и dispose().
+let bhSrc = fs.readFileSync(ROOT + '/src/blackhole.js', 'utf8')
+bhSrc = bhSrc.replace(/^import .*$/gm, '').replace(/^export const /gm, 'const ')
+const bhFactory = new Function(
+  'THREE',
+  'starTexture',
+  'glowTexture',
+  `"use strict";\n${bhSrc}\n return { createBlackHole }`
+)
+const { createBlackHole } = bhFactory(THREE, null, null)
+
 const factory = new Function(
   'THREE',
   'GALAXY',
   'starTexture',
   'glowTexture',
+  'createBlackHole',
   `"use strict";\n${src}\n
    return { generateGalaxyPoints, randomGalaxyConfig, createGalaxy, GALAXY_PRESETS }`
 )
-const api = factory(THREE, GALAXY, null, null)
+const api = factory(THREE, GALAXY, null, null, createBlackHole)
 
 let failed = 0
 const ok = (m) => console.log('  ✓ ' + m)
@@ -294,6 +339,11 @@ else ok(`Солнце внутри диска: ${localRadius.toFixed(1)} / ${GAL
 // ось вращения диска и дитя-структура
 if (!galaxy.points.children.includes(galaxy.dust)) bad('пыль не прицеплена к диску')
 else ok('пыль вращается вместе с диском')
+if (GALAXY.starGlow && (!galaxy.halo || galaxy.halo.parent !== galaxy.points))
+  bad('слой ореола звёзд не добавлен в диск')
+else if (galaxy.halo && galaxy.halo.renderOrder >= galaxy.points.renderOrder)
+  bad('ореол рисуется после ядер звёзд (должен быть под ними)')
+else ok('слой ореола звёзд на месте (' + GALAXY.haloSize + ' px)')
 if (!galaxy.core || galaxy.core.renderOrder <= galaxy.dust.renderOrder)
   bad('свечение ядра перекрыло бы пыль (renderOrder)')
 else ok('порядок отрисовки: диск → пыль → ядро')
@@ -301,6 +351,33 @@ else ok('порядок отрисовки: диск → пыль → ядро')
 if (Math.abs(galaxy.viewDistance - GALAXY.radius * 2.3) > 1e-6)
   bad('viewDistance не соответствует радиусу')
 else ok('дистанция обзора: ' + Math.round(galaxy.viewDistance))
+
+// ── [FEATURE:BLACKHOLE] чёрная дыра в центре спирали ──
+const bh = galaxy.blackHole
+if (!bh) bad('чёрная дыра не создана')
+else {
+  if (bh.root.parent !== galaxy.group) bad('чёрная дыра не в группе галактики')
+  else if (bh.root.position.lengthSq() > 1e-9) bad('чёрная дыра не в локальном (0,0,0)')
+  else ok('чёрная дыра в центре спирали (локальные 0,0,0)')
+
+  const horizonR = bh.horizon.geometry.parameters.radius
+  if (Math.abs(horizonR - GALAXY.blackHole.radius) > 1e-9)
+    bad('радиус горизонта не совпадает с конфигом')
+  else ok('сфера Шварцшильда: R = ' + horizonR)
+
+  const parts = bh.particles.reduce((s, p) => s + p.geometry.attributes.position.array.length / 3, 0)
+  if (parts !== GALAXY.blackHole.particles)
+    bad('частиц диска ' + parts + ' вместо ' + GALAXY.blackHole.particles)
+  else ok('частиц аккреционного диска: ' + parts)
+
+  // диск должен реально вращаться (и быстрее галактики)
+  const a0 = bh.particles[0].rotation.y
+  bh.update(1, 1)
+  const spin = Math.abs(bh.particles[0].rotation.y - a0)
+  if (spin < 0.1) bad('частицы диска не вращаются')
+  else if (spin <= GALAXY.rotationSpeed) bad('диск вращается не быстрее галактики')
+  else ok('диск вращается быстро: ' + spin.toFixed(2) + ' рад/с')
+}
 
 // вращение
 const before = galaxy.points.rotation.y
@@ -310,9 +387,12 @@ if (Math.abs(galaxy.points.rotation.y - before - GALAXY.rotationSpeed) > 1e-9)
 else ok('вращение диска: ' + GALAXY.rotationSpeed + ' рад/с')
 
 // dispose не должен падать и должен освободить геометрию
+const bhHorizon = galaxy.blackHole && galaxy.blackHole.horizon
 galaxy.dispose()
 if (!galaxy.points.geometry.disposed || !galaxy.dust.geometry.disposed)
   bad('dispose() не освободил геометрию')
+else if (bhHorizon && !bhHorizon.geometry.disposed)
+  bad('dispose() не освободил чёрную дыру')
 else ok('dispose() освобождает ресурсы')
 
 // ── 3. случайные галактики ──
