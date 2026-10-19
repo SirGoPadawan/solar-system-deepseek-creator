@@ -26,33 +26,58 @@ export const MOTION_DIR = new THREE.Vector3(0, 1, 0)
   .applyEuler(new THREE.Euler(SYSTEM_TILT_X, 0, SYSTEM_TILT_Z, 'XYZ'))
   .normalize()
 
+// ─── [FEATURE:KEPLER] орбитальная механика ───
+// Угловая скорость по третьему закону Кеплера: n = SPEED_FACTOR / sqrt(R³),
+// где R — радиус орбиты (большая полуось a). SPEED_FACTOR — «гравитационный»
+// множитель (аналог GM), подобранный под масштаб сцены.
+export const SPEED_FACTOR = 0.21
+
 // ─── [FEATURE:PLANETS+] Уран и Нептун добавлены в систему ───
-// Поля: name, type, radius, distance, orbitSpeed, spinSpeed, axialTilt,
-//   atmosphere {color,intensity}, moons[], artificial[].
+// Поля планеты:
+//   name, type, radius, distance (=R — радиус орбиты / большая полуось),
+//   speedScale  — множитель к кеплеровской скорости (1 = «как в природе»),
+//   spinSpeed   — скорость вращения вокруг оси (минус = ретроградное),
+//   eccentricity — эксцентриситет орбиты (0 = круг),
+//   inclination  — наклон плоскости орбиты в ГРАДУСАХ (0–7°),
+//   node         — долгота восходящего узла в ГРАДУСАХ,
+//   startAngle   — начальная аномалия в ГРАДУСАХ,
+//   axialTilt, atmosphere {color,intensity}, moons[], artificial[].
 export const PLANETS = [
   {
     name: 'Солнце',
     type: 'sun',
     radius: 3.2,
     distance: 0,
-    orbitSpeed: 0,
-    spinSpeed: 0.0015
+    speedScale: 0,
+    spinSpeed: 0.0015,
+    eccentricity: 0,
+    inclination: 0,
+    node: 0,
+    startAngle: 0
   },
   {
     name: 'Меркурий',
     type: 'mercury',
     radius: 0.42,
     distance: 5.8,
-    orbitSpeed: 0.015,
-    spinSpeed: 0.004
+    speedScale: 1,
+    spinSpeed: 0.004,
+    eccentricity: 0.2056, // самая вытянутая орбита из планет
+    inclination: 7.0,
+    node: 48,
+    startAngle: 20
   },
   {
     name: 'Венера',
     type: 'venus',
     radius: 0.72,
     distance: 8.0,
-    orbitSpeed: 0.012,
-    spinSpeed: 0.003,
+    speedScale: 1,
+    spinSpeed: -0.003, // ─── [FEATURE:SPIN] ретроградное вращение (обратное) ───
+    eccentricity: 0.0068,
+    inclination: 3.39,
+    node: 76,
+    startAngle: 130,
     atmosphere: { color: 0xffd9a0, intensity: 0.45 },
     // ─── [FEATURE:SATELLITES] ───
     artificial: [
@@ -65,8 +90,12 @@ export const PLANETS = [
     type: 'earth',
     radius: 0.85,
     distance: 11.2,
-    orbitSpeed: 0.009,
+    speedScale: 1,
     spinSpeed: 0.02,
+    eccentricity: 0.0167,
+    inclination: 0.0, // плоскость орбиты Земли — «нулевая» (экклиптика)
+    node: 0,
+    startAngle: 250,
     axialTilt: 0.41,
     atmosphere: { color: 0x5aa9ff, intensity: 0.9 },
     // ─── [FEATURE:MOONS] ───
@@ -86,8 +115,12 @@ export const PLANETS = [
     type: 'mars',
     radius: 0.6,
     distance: 14.5,
-    orbitSpeed: 0.007,
+    speedScale: 1,
     spinSpeed: 0.018,
+    eccentricity: 0.0934,
+    inclination: 1.85,
+    node: 49,
+    startAngle: 310,
     axialTilt: 0.44,
     atmosphere: { color: 0xff9a6a, intensity: 0.28 },
     // ─── [FEATURE:MOONS] ───
@@ -107,8 +140,12 @@ export const PLANETS = [
     type: 'jupiter',
     radius: 1.65,
     distance: 19.5,
-    orbitSpeed: 0.003,
+    speedScale: 1,
     spinSpeed: 0.03,
+    eccentricity: 0.0489,
+    inclination: 1.30,
+    node: 100,
+    startAngle: 75,
     axialTilt: 0.05,
     atmosphere: { color: 0xd8b48a, intensity: 0.35 },
     // ─── [FEATURE:MOONS] ───
@@ -128,8 +165,12 @@ export const PLANETS = [
     type: 'saturn',
     radius: 1.3,
     distance: 24.5,
-    orbitSpeed: 0.002,
+    speedScale: 1,
     spinSpeed: 0.025,
+    eccentricity: 0.0565,
+    inclination: 2.49,
+    node: 113,
+    startAngle: 190,
     axialTilt: 0.47,
     atmosphere: { color: 0xf0e0b4, intensity: 0.3 },
     // ─── [FEATURE:MOONS] ───
@@ -150,8 +191,12 @@ export const PLANETS = [
     type: 'uranus',
     radius: 1.0,
     distance: 29.0,
-    orbitSpeed: 0.0016,
+    speedScale: 1,
     spinSpeed: 0.028,
+    eccentricity: 0.0457,
+    inclination: 0.77,
+    node: 74,
+    startAngle: 340,
     axialTilt: 1.71, // Уран практически «лежит на боку»
     atmosphere: { color: 0x9fe8e6, intensity: 0.6 },
     // ─── [FEATURE:MOONS] ───
@@ -171,8 +216,12 @@ export const PLANETS = [
     type: 'neptune',
     radius: 0.97,
     distance: 33.0,
-    orbitSpeed: 0.0012,
+    speedScale: 1,
     spinSpeed: 0.03,
+    eccentricity: 0.0113,
+    inclination: 1.77,
+    node: 131,
+    startAngle: 45,
     axialTilt: 0.49,
     atmosphere: { color: 0x4a6bff, intensity: 0.75 },
     // ─── [FEATURE:MOONS] ───
@@ -197,27 +246,36 @@ export const trailColors = {
 }
 
 // ─── [FEATURE:BELTS] параметры поясов малых тел ───
+// Эллиптические орбиты: eccMin..eccMax — эксцентриситет, incMax — разброс
+// наклона плоскости орбиты (рад). Камни летают по общему поясу, но каждый
+// по своей слегка вытянутой и наклонённой орбите.
 export const ASTEROID_BELT = {
-  count: 700,
+  count: 1000, // ~1000 мелких астероидов между Марсом и Юпитером
   inner: 16.0,
   outer: 18.6,
-  ySpread: 0.6,
-  scaleMin: 0.03,
-  scaleMax: 0.12,
+  ySpread: 0.5,
+  scaleMin: 0.028,
+  scaleMax: 0.13,
   speedMin: 0.004,
   speedMax: 0.008,
+  eccMin: 0.02,
+  eccMax: 0.22,
+  incMax: 0.16,
   color: 0x8a8175
 }
 
 export const KUIPER_BELT = {
-  count: 500,
+  count: 800,
   inner: 37,
   outer: 45,
-  ySpread: 1.6,
+  ySpread: 1.3,
   scaleMin: 0.04,
   scaleMax: 0.14,
   speedMin: 0.0012,
   speedMax: 0.0024,
+  eccMin: 0.03,
+  eccMax: 0.25,
+  incMax: 0.22,
   color: 0x7f8fa0
 }
 

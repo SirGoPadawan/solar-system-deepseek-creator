@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { ORBIT_TILT } from './config.js'
+import { orbitLocal, orbitOrientation, orbitPolyline } from './orbit.js'
 import {
   createProPlanetTexture,
   textureSize,
@@ -317,24 +317,35 @@ export const createSunMaterial = (texture) =>
 
 // ── Одна планета + её орбита, спутники и аппараты ──
 export const createPlanet = (parent, config) => {
-  const { type, radius, distance, axialTilt, moons, artificial } = config
+  const {
+    type,
+    radius,
+    distance,
+    axialTilt,
+    moons,
+    artificial,
+    eccentricity = 0,
+    inclination = 0,
+    node = 0,
+    startAngle = 0,
+    speedScale = 1
+  } = config
 
-  // Группа вращается вокруг Y — вместе с ней движется планета и её орбита
+  // ─── [FEATURE:KEPLER] большая полуось, эксцентриситет и наклон плоскости ───
+  const a = distance
+  const e = eccentricity
+  const orientation = orbitOrientation(inclination, node)
+  const nu0 = startAngle * (Math.PI / 180)
+
+  // Контейнер планеты: позиция точки на эллипсе задаётся вручную (см. main.js),
+  // поэтому группа больше не крутится вокруг Y.
   const orbitGroup = new THREE.Object3D()
-  orbitGroup.rotation.x = ORBIT_TILT
   parent.add(orbitGroup)
 
-  // Тонкая нить орбиты в той же плоскости, что и траектория планеты
-  if (distance > 0) {
-    const points = []
-    for (let i = 0; i <= 128; i++) {
-      const theta = (i / 128) * Math.PI * 2
-      points.push(
-        new THREE.Vector3(Math.cos(theta) * distance, 0, Math.sin(theta) * distance)
-      )
-    }
+  // Линия орбиты — тот же эллипс с наклоном плоскости (та же математика, что и у планеты)
+  if (a > 0) {
     const orbitLine = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(points),
+      new THREE.BufferGeometry().setFromPoints(orbitPolyline(a, e, orientation)),
       new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.12 })
     )
     orbitGroup.add(orbitLine)
@@ -342,7 +353,7 @@ export const createPlanet = (parent, config) => {
 
   // Точка планеты: спутники/аппараты крепятся сюда, не наследуя наклон оси
   const holder = new THREE.Object3D()
-  holder.position.x = distance
+  if (a > 0) orbitLocal(a, e, nu0, holder.position).applyEuler(orientation)
   orbitGroup.add(holder)
 
   // Наклон оси: внутри живёт сама планета, её атмосфера и кольца
@@ -420,7 +431,19 @@ export const createPlanet = (parent, config) => {
     if (obj.isLine) orbitLines.push(obj)
   })
 
-  return { config, mesh, orbitGroup, holder, moonRigs, satRigs, emissive, orbitLines }
+  return {
+    config,
+    mesh,
+    orbitGroup,
+    holder,
+    moonRigs,
+    satRigs,
+    emissive,
+    orbitLines,
+    // ─── [FEATURE:KEPLER] состояние орбиты: большая полуось, эксцентриситет,
+    // ориентация плоскости и текущая истинная аномалия (её двигает main.js)
+    orbit: { a, e, orientation, nu: nu0, speedScale }
+  }
 }
 
 // ─── [FEATURE:TESLA] Tesla Roadster со Starman за рулём ───

@@ -45,7 +45,9 @@ export const createStarfield = () => {
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       alphaTest: 0.01,
-      sizeAttenuation: true
+      sizeAttenuation: true,
+      // звёзды — «дальний фон»: объёмный туман на них не действует
+      fog: false
     })
   )
 
@@ -71,9 +73,55 @@ export const createNebula = () => {
       map: createNebulaTexture(),
       side: THREE.BackSide,
       depthWrite: false,
-      toneMapped: false
+      toneMapped: false,
+      fog: false
     })
   )
   mesh.renderOrder = -1
   return mesh
 }
+
+// ─── [FEATURE:DUST] лёгкое свечение на задний план ───
+// Очень слабый градиент (снизу фиолетовый, сверху синий) аддитивно
+// подсвечивает космос, чтобы он не был абсолютно чёрным.
+export const createSpaceGlow = () => {
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(500, 32, 32),
+    new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        uTop: { value: new THREE.Color(0x16264f) },
+        uBottom: { value: new THREE.Color(0x2a173f) },
+        uIntensity: { value: 0.16 }
+      },
+      vertexShader: `
+        varying vec3 vDir;
+        void main() {
+          vDir = normalize(position);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uTop;
+        uniform vec3 uBottom;
+        uniform float uIntensity;
+        varying vec3 vDir;
+        void main() {
+          float t = vDir.y * 0.5 + 0.5;
+          vec3 col = mix(uBottom, uTop, t);
+          gl_FragColor = vec4(col * uIntensity, 1.0);
+        }
+      `
+    })
+  )
+  mesh.renderOrder = -0.5
+  return mesh
+}
+
+// ─── [FEATURE:DUST] объёмный «туман» космоса (THREE.FogExp2) ───
+// Дальние объекты мягко уходят в темноту — сцена читается объёмнее.
+export const createSpaceFog = () => new THREE.FogExp2(0x0a1024, 0.008)

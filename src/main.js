@@ -13,11 +13,15 @@ import {
   DEFAULT_SPEED_INDEX
 } from './config.js'
 import { createPlanet, createSunEffects } from './bodies.js'
-import { createStarfield, createNebula } from './sky.js'
+import { createStarfield, createNebula, createSpaceGlow, createSpaceFog } from './sky.js'
+import { createEclipticGrid } from './grid.js'
+import { meanMotion, orbitLocal } from './orbit.js'
 import { makeBelt, updateBelt } from './belts.js'
 import { createComets, createStarman } from './comets.js'
 import { createTrails } from './trails.js'
 import { createControls } from './ui.js'
+import { createPlanetCard } from './card.js'
+import { createHoverTooltip } from './tooltip.js'
 
 // ─────────────────────────────────────────────────────────────
 // ТОЧКА СБОРКИ СЦЕНЫ И ИГРОВОЙ ЦИКЛ
@@ -69,12 +73,19 @@ controls.minDistance = 5
 controls.maxDistance = 200
 controls.maxPolarAngle = Math.PI / 2.05
 
-// 2. Небо: звёзды + туманность
+// 2. Небо: звёзды + туманность + лёгкое свечение фона
 const starfield = createStarfield()
 scene.add(starfield.points)
 
 const nebula = createNebula()
 scene.add(nebula)
+
+// ─── [FEATURE:DUST] объёмный туман космоса ───
+const spaceFog = createSpaceFog()
+scene.fog = spaceFog
+
+const spaceGlow = createSpaceGlow()
+scene.add(spaceGlow)
 
 // 3. Свет (намеренно приглушённый — больше «темноты» и контраста)
 const ambientLight = new THREE.AmbientLight(0x121522, 0.8)
@@ -93,6 +104,10 @@ world.add(rimLight)
 
 // 4. Планеты (+ Солнце с короной), пояса, кометы и Тесла
 const planets = PLANETS.map((config) => createPlanet(world, config))
+
+// ─── [FEATURE:GRID] сетка эклиптики в плоскости Солнца ───
+const eclipticGrid = createEclipticGrid(40)
+world.add(eclipticGrid)
 
 let sunRig = null
 let sunFx = null
@@ -128,16 +143,21 @@ const options = {
   trails: true, // винтовые следы
   stars: true, // звёздное небо (полёт)
   orbits: true, // линии орбит
+  grid: true, // сетка эклиптики
   belts: true, // пояса астероидов и Койпера
   comets: true, // кометы
   tesla: true, // Tesla / Starman
-  nebula: true // туманность
+  nebula: true, // туманность
+  dust: true // космическая пыль (туман + свечение фона)
 }
 const planetVisible = planets.map(() => true)
 
 const refreshVisibility = () => {
   starfield.points.visible = options.stars
   nebula.visible = options.nebula
+  spaceGlow.visible = options.dust
+  scene.fog = options.dust ? spaceFog : null
+  eclipticGrid.visible = options.grid
   asteroidBelt.inst.visible = options.belts
   kuiperBelt.inst.visible = options.belts
   comets.root.visible = options.comets
@@ -152,42 +172,58 @@ const refreshVisibility = () => {
 }
 refreshVisibility()
 
-// 6. Интерфейс: панель слева вверху (скорость, тумблеры, параметры планеты)
+// 6. Интерфейс: панель слева вверху (глобальные настройки) + карточка планеты
 let selected = null
 let selectedIndex = -1
 
+const HIGHLIGHT = new THREE.Color(0x24406e)
 const setHighlight = (rig, on) => {
   if (!rig.emissive) return
   rig.mesh.material.emissive.copy(on ? HIGHLIGHT : rig.emissive)
 }
-const HIGHLIGHT = new THREE.Color(0x24406e)
 
 // Исходные параметры планет — для кнопки «Сбросить планету»
 const defaults = new WeakMap()
 planets.forEach((rig) =>
   defaults.set(rig.config, {
-    orbitSpeed: rig.config.orbitSpeed,
+    speedScale: rig.orbit.speedScale,
     spinSpeed: rig.config.spinSpeed,
     scale: 1
   })
 )
 
+const card = createPlanetCard({
+  onParamInput: (param, value) => {
+    if (!selected) return
+    // ─── [FEATURE:KEPLER] множитель к кеплеровской скорости
+    if (param === 'orbit') selected.orbit.speedScale = value
+    else if (param === 'spin') selected.config.spinSpeed = value
+    else if (param === 'size') selected.mesh.scale.setScalar(value)
+  },
+  onParamDefaults: () => {
+    if (!selected) return
+    const d = defaults.get(selected.config)
+    selected.orbit.speedScale = d.speedScale
+    selected.config.spinSpeed = d.spinSpeed
+    selected.mesh.scale.setScalar(d.scale)
+    card.setParamValues(d)
+  },
+  onClose: () => select(null)
+})
+
+const tooltip = createHoverTooltip()
+
 const select = (rig) => {
   if (selected && selected !== rig) setHighlight(selected, false)
   selected = rig
   selectedIndex = rig ? planets.indexOf(rig) : -1
+  tooltip.hide()
   if (!rig) {
-    controlsUi.hideParams()
+    card.hide()
     return
   }
   setHighlight(rig, true)
-  controlsUi.showParams({
-    name: rig.config.name,
-    orbitSpeed: rig.config.orbitSpeed,
-    spinSpeed: rig.config.spinSpeed,
-    scale: rig.mesh.scale.x,
-    lockOrbit: rig.config.type === 'sun'
-  })
+  card.show(rig)
 }
 
 const controlsUi = createControls({
@@ -212,56 +248,55 @@ const controlsUi = createControls({
     if (!value && selectedIndex === index) select(null)
     refreshVisibility()
   },
-  onPlanetSelect: (index) => select(planets[index]),
-  onParamInput: (param, value) => {
-    if (!selected) return
-    if (param === 'orbit') selected.config.orbitSpeed = value
-    else if (param === 'spin') selected.config.spinSpeed = value
-    else if (param === 'size') selected.mesh.scale.setScalar(value)
-  },
-  onParamDefaults: () => {
-    if (!selected) return
-    const d = defaults.get(selected.config)
-    selected.config.orbitSpeed = d.orbitSpeed
-    selected.config.spinSpeed = d.spinSpeed
-    selected.mesh.scale.setScalar(d.scale)
-    controlsUi.setParamValues({
-      orbitSpeed: d.orbitSpeed,
-      spinSpeed: d.spinSpeed,
-      scale: d.scale
-    })
-  },
-  onParamClose: () => select(null)
+  onPlanetSelect: (index) => select(planets[index])
 })
 controlsUi.setSpeed('×' + systemSpeed)
 controlsUi.setPaused(paused)
 
-// 7. Клик/тап по планете (перетаскивание камеры кликом не считается)
+// 7. Мышь: клик по планете — карточка, наведение — подсказка
 const raycaster = new THREE.Raycaster()
 const pointer = new THREE.Vector2()
 let pointerDown = null
 
+const pickableMeshes = () => {
+  const meshes = []
+  planets.forEach((p, i) => {
+    if (planetVisible[i]) meshes.push(p.mesh)
+  })
+  return meshes
+}
+
+const rayFromEvent = (e) => {
+  const rect = renderer.domElement.getBoundingClientRect()
+  pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+  pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+  raycaster.setFromCamera(pointer, camera)
+  const hits = raycaster.intersectObjects(pickableMeshes(), false)
+  return hits.length ? planets.find((p) => p.mesh === hits[0].object) : null
+}
+
 renderer.domElement.addEventListener('pointerdown', (e) => {
   pointerDown = { x: e.clientX, y: e.clientY, t: performance.now() }
 })
+
 renderer.domElement.addEventListener('pointerup', (e) => {
   if (!pointerDown) return
   const moved = Math.hypot(e.clientX - pointerDown.x, e.clientY - pointerDown.y)
   const dt = performance.now() - pointerDown.t
   pointerDown = null
   if (moved > 6 || dt > 500) return // это было вращение камеры
-
-  const rect = renderer.domElement.getBoundingClientRect()
-  pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
-  pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
-  raycaster.setFromCamera(pointer, camera)
-  const meshes = []
-  planets.forEach((p, i) => {
-    if (planetVisible[i]) meshes.push(p.mesh)
-  })
-  const hits = raycaster.intersectObjects(meshes, false)
-  select(hits.length ? planets.find((p) => p.mesh === hits[0].object) : null)
+  select(rayFromEvent(e))
 })
+
+// ─── [FEATURE:HOVER] подсказка рядом с планетой ───
+renderer.domElement.addEventListener('pointermove', (e) => {
+  if (pointerDown) return // тянем камеру — подсказку не трогаем
+  const rig = rayFromEvent(e)
+  // у выбранной планеты уже есть карточка — подсказка не нужна
+  if (!rig || rig === selected) tooltip.hide()
+  else tooltip.show(rig)
+})
+renderer.domElement.addEventListener('pointerleave', () => tooltip.hide())
 
 // 8. Игровой цикл
 const clock = new THREE.Clock()
@@ -280,7 +315,14 @@ function animate() {
   const spinStep = delta * 60 * spinScale
 
   planets.forEach((p) => {
-    p.orbitGroup.rotation.y += p.config.orbitSpeed * orbitStep
+    // ─── [FEATURE:KEPLER] движение по эллипсу: n = SPEED_FACTOR / sqrt(R³) ───
+    const o = p.orbit
+    if (o.a > 0) {
+      o.nu += meanMotion(o.a, o.speedScale) * orbitStep
+      orbitLocal(o.a, o.e, o.nu, p.holder.position).applyEuler(o.orientation)
+    }
+
+    // Осевое вращение (у Венеры spinSpeed < 0 — ретроградное)
     p.mesh.rotation.y += p.config.spinSpeed * spinStep
 
     // ─── [FEATURE:MOONS] ───
@@ -323,6 +365,10 @@ function animate() {
 
   controls.update()
   renderer.render(scene, camera)
+
+  // ─── [FEATURE:CARD] / [FEATURE:HOVER] 2D-слой держим привязанным к 3D ───
+  card.update(camera, renderer)
+  tooltip.update(camera, renderer)
 }
 animate()
 

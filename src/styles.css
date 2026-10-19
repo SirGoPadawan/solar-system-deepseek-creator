@@ -1,0 +1,415 @@
+/* ─────────────────────────────────────────────────────────────
+   СТИЛИ ИНТЕРФЕЙСА (вынесены из index.html)
+   Секции:
+     1. База
+     2. Виньетка [FEATURE:UI]
+     3. Панель управления слева вверху [FEATURE:UI]
+     4. Карточка планеты над планетой [FEATURE:CARD]
+     5. Линия-поводырь «планета → карточка»
+     6. Подсказка при наведении [FEATURE:HOVER]
+   ───────────────────────────────────────────────────────────── */
+
+/* ─── 1. База ─── */
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background-color: #000;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: #eaf2ff;
+}
+canvas {
+  display: block;
+}
+
+/* ─── 2. [FEATURE:UI] затемнение по краям кадра («больше темноты») ─── */
+.vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at 50% 45%,
+    rgba(0, 0, 0, 0) 32%,
+    rgba(0, 0, 0, 0.42) 72%,
+    rgba(0, 0, 0, 0.72) 100%
+  );
+}
+
+/* ─── 3. [FEATURE:UI] панель управления слева вверху ─── */
+.controls {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  width: 300px;
+  max-height: calc(100vh - 28px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  background: rgba(10, 14, 24, 0.74);
+  border: 1px solid rgba(120, 170, 255, 0.22);
+  backdrop-filter: blur(10px);
+  z-index: 10;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55);
+  user-select: none;
+}
+.ctl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(120, 170, 255, 0.16);
+  flex: 0 0 auto;
+}
+.ctl-brand {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: #cfe1ff;
+}
+.ctl-collapse {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: #eaf2ff;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.ctl-collapse:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+.ctl-body {
+  padding: 6px 14px 12px;
+  overflow-y: auto;
+}
+.controls.collapsed .ctl-body {
+  display: none;
+}
+.ctl-body::-webkit-scrollbar {
+  width: 8px;
+}
+.ctl-body::-webkit-scrollbar-thumb {
+  background: rgba(120, 170, 255, 0.25);
+  border-radius: 8px;
+}
+
+.ctl-block {
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(120, 170, 255, 0.1);
+}
+.ctl-block:last-of-type {
+  border-bottom: none;
+}
+.ctl-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #7e9bc4;
+  margin-bottom: 8px;
+}
+.ctl-note {
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #5f769b;
+}
+
+.speed-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.speed-row button {
+  width: 38px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid rgba(120, 170, 255, 0.28);
+  background: rgba(30, 44, 70, 0.7);
+  color: #eaf2ff;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.08s;
+}
+.speed-row button:hover {
+  background: rgba(60, 90, 140, 0.9);
+}
+.speed-row button:active {
+  transform: scale(0.94);
+}
+.speed-row button.active {
+  background: rgba(90, 169, 255, 0.6);
+}
+.speed-val {
+  min-width: 46px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  color: #bcd6ff;
+}
+
+.chk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #cfdcf0;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.chk input {
+  accent-color: #5aa9ff;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+.planet-name {
+  cursor: pointer;
+}
+.planet-name:hover {
+  color: #7fb6ff;
+  text-decoration: underline;
+}
+
+.ctl-hint {
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #6d84a8;
+}
+
+/* ─── 4. [FEATURE:CARD] карточка планеты — открывается над планетой ─── */
+.planet-card {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 310px;
+  max-height: min(72vh, 560px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  background: linear-gradient(160deg, rgba(14, 22, 40, 0.92), rgba(8, 12, 22, 0.9));
+  border: 1px solid rgba(120, 170, 255, 0.32);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.62),
+    0 0 0 1px rgba(90, 169, 255, 0.08) inset;
+  backdrop-filter: blur(12px);
+  z-index: 12;
+  overflow: hidden;
+  will-change: transform;
+  user-select: none;
+}
+.planet-card.hidden {
+  display: none;
+}
+.pc-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid rgba(120, 170, 255, 0.16);
+}
+.pc-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pc-name {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #eaf3ff;
+}
+.pc-tag {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6f8fbd;
+}
+.pc-actions {
+  display: flex;
+  gap: 6px;
+}
+.pc-mini {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid rgba(120, 170, 255, 0.25);
+  background: rgba(255, 255, 255, 0.06);
+  color: #dfeaff;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.pc-mini:hover {
+  background: rgba(120, 170, 255, 0.28);
+}
+.pc-mini.on {
+  background: rgba(90, 169, 255, 0.75);
+  border-color: rgba(150, 200, 255, 0.8);
+}
+.pc-body {
+  padding: 10px 12px 12px;
+  overflow-y: auto;
+}
+.pc-body::-webkit-scrollbar {
+  width: 8px;
+}
+.pc-body::-webkit-scrollbar-thumb {
+  background: rgba(120, 170, 255, 0.25);
+  border-radius: 8px;
+}
+.pc-desc {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #c2d3ec;
+}
+.pc-facts {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  border-top: 1px solid rgba(120, 170, 255, 0.12);
+}
+.pc-facts li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 0;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(120, 170, 255, 0.08);
+}
+.pc-facts span {
+  color: #7f97bb;
+}
+.pc-facts b {
+  color: #eaf3ff;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.pc-params {
+  background: rgba(30, 60, 110, 0.22);
+  border: 1px solid rgba(120, 170, 255, 0.16);
+  border-radius: 12px;
+  padding: 10px 10px 4px;
+}
+.pc-row {
+  display: block;
+  font-size: 11.5px;
+  color: #a9c1e6;
+  margin-bottom: 10px;
+}
+.pc-row b {
+  float: right;
+  color: #eaf3ff;
+  font-variant-numeric: tabular-nums;
+}
+.pc-row input[type='range'] {
+  width: 100%;
+  margin-top: 5px;
+  accent-color: #5aa9ff;
+}
+.pc-row.disabled {
+  opacity: 0.4;
+}
+.pc-reset {
+  width: 100%;
+  padding: 7px;
+  margin-bottom: 8px;
+  border-radius: 9px;
+  border: 1px solid rgba(120, 170, 255, 0.3);
+  background: rgba(30, 44, 70, 0.7);
+  color: #eaf2ff;
+  cursor: pointer;
+  font-size: 12px;
+}
+.pc-reset:hover {
+  background: rgba(60, 90, 140, 0.9);
+}
+
+/* ─── 5. линия-поводырь «планета → карточка» ─── */
+.card-link {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 11;
+}
+.card-link.hidden {
+  display: none;
+}
+.card-link line {
+  stroke: rgba(120, 175, 255, 0.55);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+.card-link circle {
+  fill: rgba(150, 200, 255, 0.9);
+}
+
+/* ─── 6. [FEATURE:HOVER] футуристичная подсказка при наведении ─── */
+.hover-tip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  min-width: 210px;
+  max-width: 260px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: linear-gradient(150deg, rgba(16, 30, 54, 0.9), rgba(9, 14, 26, 0.88));
+  border: 1px solid rgba(110, 200, 255, 0.38);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55),
+    0 0 18px rgba(70, 160, 255, 0.18) inset;
+  backdrop-filter: blur(10px);
+  z-index: 13;
+  pointer-events: none;
+  will-change: transform;
+}
+.hover-tip.hidden {
+  display: none;
+}
+.ht-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 7px;
+}
+.ht-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #5ad1ff;
+  box-shadow: 0 0 10px #5ad1ff;
+  flex: 0 0 auto;
+}
+.ht-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #eaf6ff;
+}
+.ht-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  font-size: 11.5px;
+}
+.ht-k {
+  color: #7f9ec4;
+}
+.ht-v {
+  color: #dcecff;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

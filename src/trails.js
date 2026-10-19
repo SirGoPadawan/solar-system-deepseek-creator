@@ -3,12 +3,12 @@ import {
   TRAIL_TIME,
   TRAIL_POINTS,
   trailColors,
-  ORBIT_TILT,
   SYSTEM_TILT_X,
   SYSTEM_TILT_Z,
   MOTION_SPEED,
   MOTION_DIR
 } from './config.js'
+import { meanMotion, orbitLocal } from './orbit.js'
 
 // ─────────────────────────────────────────────────────────────
 // ─── [FEATURE:TRAILS] винтовые следы планет (спирали как на solar.jpg) ───
@@ -44,32 +44,29 @@ const createTrailLine = (scene, color) => {
 
 export const createTrails = (scene, rigs) => {
   const bodies = rigs.map((rig) => ({
-    orbitGroup: rig.orbitGroup,
-    distance: rig.config.distance,
-    omega: rig.config.orbitSpeed * 60, // угловая скорость, рад/сек
+    orbit: rig.orbit,
     trail: createTrailLine(scene, trailColors[rig.config.type])
   }))
 
   // Ссылки на линии следов — для тумблера «Винтовые следы» и скрытия планеты
   const lines = bodies.map((b) => b.trail.line)
 
-  const euler = new THREE.Euler()
   const systemTilt = new THREE.Euler(SYSTEM_TILT_X, 0, SYSTEM_TILT_Z, 'XYZ')
   const vec = new THREE.Vector3()
 
   // systemSpeed — глобальный множитель скорости (крутилки UI): и орбита, и полёт
   const update = (systemSpeed) => {
     bodies.forEach((b) => {
-      const theta0 = b.orbitGroup.rotation.y
+      const o = b.orbit
+      // ─── [FEATURE:KEPLER] угловая скорость по формуле n = SPEED_FACTOR/sqrt(R³)
+      const omega = meanMotion(o.a, o.speedScale) * 60 // рад/сек
       const t = b.trail
       for (let k = 0; k < TRAIL_POINTS; k++) {
         const rel = k / (TRAIL_POINTS - 1) // 0 у планеты -> 1 на дальнем конце
         const age = rel * TRAIL_TIME * systemSpeed
-        euler.set(ORBIT_TILT, theta0 - b.omega * age, 0, 'XYZ')
-        vec
-          .set(b.distance, 0, 0)
-          .applyEuler(euler)
-          .applyEuler(systemTilt)
+        // Где планета БЫЛА: отступаем по аномалии на прошедшее время
+        const nuPast = o.nu - omega * age
+        orbitLocal(o.a, o.e, nuPast, vec).applyEuler(o.orientation).applyEuler(systemTilt)
         // Смещение назад — как если бы система всё это время летела вперёд
         vec.addScaledVector(MOTION_DIR, -MOTION_SPEED * age)
         t.positions[k * 3] = vec.x
