@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Процедурная Вселенная — Three.js</title>
+
+    <!-- Стили только этой демо-страницы; интерфейс проекта не затрагивается. -->
+    <link rel="stylesheet" href="./src/universe/demo.css" />
+
+    <!-- Те же локальные вендорные модули, что и в index.html: работает на GitHub Pages -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three/three.module.js",
+          "three/addons/": "./vendor/three/addons/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <canvas id="uni-canvas"></canvas>
+
+    <div id="uni-ui">
+      <div class="uni-top">
+        <div class="uni-title">Процедурная Вселенная</div>
+        <div id="uni-badge" class="uni-badge">Галактика</div>
+      </div>
+
+      <button id="uni-back" class="uni-btn" hidden>← В галактику</button>
+      <button id="uni-random" class="uni-btn">Случайная звезда</button>
+
+      <div id="uni-hover" class="uni-hover" hidden></div>
+
+      <div class="uni-info">
+        <div id="uni-info-title" class="uni-info-title">Млечный Путь</div>
+        <div id="uni-info-body" class="uni-info-body">
+          Клик по яркой звезде — войти в систему.<br />
+          <b>Esc</b> или кнопка — вернуться на карту.
+        </div>
+      </div>
+
+      <div class="uni-hint">
+        ЛКМ — вращение · колесо — масштаб<br />
+        клик по звезде / планете
+      </div>
+    </div>
+
+    <script type="module" src="./src/universe/demo.js"></script>
+  </body>
+</html>

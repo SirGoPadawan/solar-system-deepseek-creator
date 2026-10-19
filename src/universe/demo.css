@@ -1,0 +1,185 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   demo.css — стили только для автономной страницы universe.html.
+   Существующий src/styles.css и интерфейс проекта не затрагиваются.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #020308;
+  color: #dfe9ff;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+#uni-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  outline: none;
+}
+
+#uni-ui {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.uni-top {
+  position: absolute;
+  top: 22px;
+  left: 26px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.uni-title {
+  font-size: 13px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: rgba(214, 233, 255, 0.72);
+  text-shadow: 0 0 18px rgba(94, 170, 255, 0.45);
+}
+
+.uni-badge {
+  padding: 4px 11px;
+  border: 1px solid rgba(110, 180, 255, 0.35);
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #9fd0ff;
+  background: rgba(10, 26, 48, 0.5);
+  box-shadow: inset 0 0 18px rgba(60, 140, 255, 0.12);
+}
+
+.uni-btn {
+  pointer-events: auto;
+  position: absolute;
+  padding: 10px 18px;
+  border: 1px solid rgba(120, 190, 255, 0.35);
+  border-radius: 10px;
+  background: rgba(8, 20, 38, 0.62);
+  color: #cfe6ff;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.uni-btn:hover {
+  background: rgba(18, 44, 78, 0.8);
+  border-color: rgba(140, 210, 255, 0.7);
+  box-shadow: 0 0 26px rgba(70, 160, 255, 0.28);
+  transform: translateY(-1px);
+}
+
+.uni-btn:active {
+  transform: translateY(0);
+}
+
+#uni-back {
+  top: 22px;
+  right: 26px;
+}
+
+#uni-random {
+  top: 22px;
+  right: 26px;
+}
+
+.uni-hover {
+  position: absolute;
+  top: 78px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(150, 205, 255, 0.35);
+  background: rgba(6, 18, 36, 0.65);
+  color: #eaf4ff;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  backdrop-filter: blur(8px);
+  text-shadow: 0 0 14px rgba(140, 200, 255, 0.6);
+  transition: opacity 0.15s;
+}
+
+.uni-info {
+  position: absolute;
+  left: 26px;
+  bottom: 26px;
+  max-width: 360px;
+  padding: 16px 20px;
+  border: 1px solid rgba(90, 150, 220, 0.25);
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(10, 24, 44, 0.82), rgba(5, 12, 24, 0.72));
+  backdrop-filter: blur(12px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5), inset 0 0 30px rgba(40, 110, 200, 0.08);
+}
+
+.uni-info-title {
+  margin-bottom: 7px;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  color: #ffffff;
+  text-shadow: 0 0 20px rgba(110, 180, 255, 0.55);
+}
+
+.uni-info-body {
+  font-size: 12px;
+  line-height: 1.65;
+  color: rgba(190, 214, 244, 0.72);
+}
+
+.uni-info-body b {
+  color: #9fd0ff;
+  font-weight: 600;
+}
+
+.uni-hint {
+  position: absolute;
+  right: 26px;
+  bottom: 26px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(160, 190, 225, 0.45);
+  text-align: right;
+  line-height: 1.7;
+}
+
+@media (max-width: 720px) {
+  .uni-title {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+  }
+
+  .uni-info {
+    left: 14px;
+    right: 14px;
+    bottom: 14px;
+    max-width: none;
+  }
+
+  .uni-btn {
+    top: auto;
+    bottom: 150px;
+    right: 14px;
+  }
+
+  .uni-hint {
+    display: none;
+  }
+}

@@ -13,7 +13,8 @@
     "check": "node tools/check.cjs",
     "test:galaxy": "node tools/galaxy.test.cjs",
     "test:systems": "node tools/systems.test.cjs",
-    "test": "node tools/check.cjs && node tools/galaxy.test.cjs && node tools/systems.test.cjs"
+    "test:universe": "node tools/universe.test.cjs",
+    "test": "node tools/check.cjs && node tools/galaxy.test.cjs && node tools/systems.test.cjs && node tools/universe.test.cjs"
   },
   "keywords": [],
   "author": "",

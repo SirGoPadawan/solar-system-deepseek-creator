@@ -34,10 +34,15 @@
 - `src/card.js` — карточка планеты над планетой (2D-слой, привязан к проекции).
 - `src/tooltip.js` — футуристичная подсказка при наведении (2D-слой).
 - `src/main.js` — сборка сцены, свет, игровой цикл, raycast-выбор и наведение.
+- `src/universe/` — **изолированный слой процедурной Вселенной** (не подключён к `index.js`):
+  RNG, Кеплер, GLSL-шум, шейдеры звезды/планеты, карта Галактики, созвездия, генератор
+  систем, режимы «галактика ⇄ система», запасная ЧД. См. `src/universe/README.md`.
+- `universe.html` — автономная демо-страница нового слоя (`/universe.html`).
 - `server.js` — статический сервер без зависимостей (для `npm start`), ESM.
 - `tools/check.cjs` — проверки без браузера (`npm run check`): синтаксис, импорты, API three, методы.
 - `tools/galaxy.test.cjs`, `tools/systems.test.cjs` — смоук-тесты (`npm test`) реального кода
   галактики и систем на заглушке three (геометрия «Солнце в плоскости диска», отсутствие `NaN`).
+- `tools/universe.test.cjs` — офлайн-тесты чистой математики нового слоя (seed, Kepler, созвездия).
 - `vendor/three/` — закоммиченный three.js (`three.module.js`, `three.core.js`) + `addons/controls/OrbitControls.js`.
 - `.nojekyll` — пустой файл, отключает Jekyll на GitHub Pages.
 - `README.md` — инструкция по запуску/деплою + упоминание модели.
@@ -801,6 +806,105 @@ export const trailColors = { sun, mercury, venus, earth, mars, jupiter, saturn, 
 - Параметры шума задаются прямо в вызовах `fbm(u, v, octaves, baseFreq, seed)`.
 - Полосы газовых гигантов: `makeBandedShader(bands, { warpAmount, smoothLo, streakAmount, ... })`.
 - Оверлеи: `drawGreatRedSpot` (Юпитер), `drawSunspots` (Солнце).
+
+---
+
+## Этап 19. Процедурная Вселенная — изолированный слой `src/universe/`
+
+Задача: спроектировать масштабное расширение (процедурные шейдеры, карта Галактики,
+созвездия, спавнер систем, переключение режимов), **не трогая** рабочий `index.js`
+и остальной код. Решение — новый самодостаточный слой, который ничего не импортирует
+из существующих модулей и подключается явно.
+
+### 19.1 Архитектура
+
+```
+seed.js                 mulberry32 + hashSeed + createRng() — детерминизм
+kepler.js               M → E → ν, 3D-позиция, meanMotion, линия орбиты (без three)
+noise.glsl.js           GLSL: 3D Perlin, fbm, ridged, warp; палитры звёзд
+constellations.js       авто/явные созвездия → пары индексов
+galaxyMap.js            Points (галактика) + LineSegments (созвездия) + пикинг
+systemFactory.js        generateSystem(seed) + createSystemSpawner (scene.remove + dispose)
+fallbackBlackHole.js    горизонт, фотонное кольцо, диск частиц, джеты
+modeController.js       «галактика ⇄ система», клики, Escape, перелёты камеры
+shaders/starMaterial.js ShaderMaterial плазмы (u_time)
+shaders/planetMaterial.js универсальный ShaderMaterial планеты (u_seed)
+index.js                публичный API
+```
+
+### 19.2 Шейдеры `[FEATURE:STARSHADER]` / `[FEATURE:PLANETSHADER]`
+
+- **Звезда**: фрагментный шейдер на 3D Perlin (без текстур). Три слоя — крупная
+  конвекция, грануляция `uGranulation`, хребтовый шум; домен плывёт от `uTime`.
+  Лимб-даркенинг + горячая кромка. Палитры: sun / orangeDwarf / redDwarf /
+  blueGiant / whiteDwarf. Яркость 1.05–1.7 HDR — для блума.
+- **Планета**: один шейдер, `uSeed` сдвигает домен. `uKind = 0` — континенты
+  (domain warp, маска суши, шельф, горы, полярные шапки, два слоя облаков),
+  `uKind = 1` — полосы газового гиганта (warp по широте, турбулентность,
+  «большое пятно» по сиду). Свет — точечный `uSunPos` в world space,
+  поэтому шейдер не зависит от ламп сцены и работает в любой системе.
+- Оба материала включают `<tonemapping_fragment>` / `<colorspace_fragment>`.
+
+### 19.3 Карта Галактики и созвездия `[FEATURE:GALAXYMAP]` / `[FEATURE:CONSTELLATIONS]`
+
+- 30–45k фоновых звёзд: логарифмические рукава (4 ветви), центральный балдж,
+  рассеяние по толщине, тёплое ядро → холодная периферия. Один `THREE.Points`,
+  `sizeAttenuation` нет: размер точек фиксирован в пикселях.
+- Ключевые звёзды — второй `Points` (крупные, с именем и сидом). По клику
+  `pickAt()` проецирует их в экран и ищет ближайшую в радиусе 30 px.
+- Созвездия: `buildConstellations()` режет звёзды по азимуту на сектора,
+  внутри сектора соединяет цепочкой по высоте + перекладина; результат —
+  `LineSegments` с аддитивной полупрозрачностью. Можно передать явные
+  созвездия по id.
+- Карта медленно вращается (`rotateSpeed`), звёзды мерцают в вершинном шейдере.
+
+### 19.4 Спавнер систем `[FEATURE:SYSTEMSPAWNER]`
+
+`generateSystem(starSeed)` детерминированно:
+
+1. выбирает тип звезды по весам (`STAR_TYPES`);
+2. спавнит `rng.int(3, 8)` планет;
+3. для каждой: `a` растёт геометрически, `e = 0.02…0.23`, наклон/узел/перицентр,
+   `M0`; скорость `n = sqrt(μ/a³)` (Кеплер);
+4. тип планеты: газовый гигант (шанс 34%, не в глубине системы) или земля;
+5. `u_seed = "seed:planet:i"` → уникальные цвета/узор; газовым иногда кольца.
+
+`createSystemSpawner`:
+
+```js
+scene.remove(current.root);
+current.dispose();        // Set<geometry/material> — без двойных dispose
+current = generateSystem(seed);
+scene.add(current.root);
+```
+
+Если передать `blackHoleFactory`, используется ваша `createBlackHole` (её поддерево
+исключается из общего dispose — у неё свой). Иначе — лёгкая запасная ЧД
+`[FEATURE:BHFALLBACK]`: сфера, билборд-кольцо (шейдер), диск частиц
+с ω ∝ r^-1.5, два джета.
+
+### 19.5 Режимы и клики `[FEATURE:UNIVERSEMODES]`
+
+- `createUniverseController({ scene, camera, controls, ... })`:
+  режим `galaxy` — карта; `system` — заспавненная система на месте звезды.
+- Клик по звезде → `enterSystem(star)`: спавн, `root.position = star.worldPos`,
+  перелёт камеры (easeInOutCubic, 1.35 с), карта прячется в конце.
+- `Escape` / кнопка → `enterGalaxy()`: карта появляется, камера летит назад,
+  после прибытия `spawner.clear()` (scene.remove + dispose).
+- Клик по планете в системе → `onPlanetClick(planet, system)`.
+- Ховер по звёздам → `onHover(star | null)` + курсор pointer.
+- Клик отличается от драга: смещение > 6 px или удержание > 700 мс.
+- `initializeCamera: false` — не трогать камеру существующей сцены.
+
+### 19.6 Демо и тесты
+
+- `universe.html` + `src/universe/demo.js` — автономная страница:
+  карта → клик по звезде → система → Esc назад; кнопка «Случайная звезда»;
+  deep-link `?star=star-7&type=blackHole&instant=1` для проверки без кликов.
+- `tools/universe.test.cjs`: 28 проверок seed/Kepler/созвездий; добавлен в `npm test`.
+- Проверено в headless Chrome (SwiftShader): карта, красный карлик, голубой
+  гигант, чёрная дыра, газовый гигант с полосами — без ошибок шейдеров.
+- Стили демо — в `src/universe/demo.css`, интерфейс проекта не затронут.
 
 ---
 
